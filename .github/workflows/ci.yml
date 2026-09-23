@@ -111,7 +111,46 @@ jobs:
           path: |
             android/app/build/reports/
             android/app/schemas/
-
+  device:
+    name: Android browsing and navigation smoke tests
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/download-artifact@v5
+        with:
+          name: findex-1.1-unsigned-and-debug
+          path: apk
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Test real Android directory browsing with a large index
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          disable-animations: true
+          script: |
+            adb install -r apk/debug/app-debug.apk
+            adb install -r apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w -r app.findex.files.test/androidx.test.runner.AndroidJUnitRunner > android-device-tests.txt
+            cat android-device-tests.txt
+            python3 scripts/check-instrumentation.py android-device-tests.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-device-results
+          path: android-device-tests.txt
   sign-release:
     name: Sign and publish the authorized release
     if: github.event_name == 'push' && github.ref == 'refs/heads/arena/01a0caa2-findex' && (contains(github.event.head_commit.message, '[publish release]') || contains(github.event.head_commit.message, '[bootstrap signing]'))
@@ -159,43 +198,3 @@ jobs:
           PYTHON
           fi
           exit "$result"
-
-    name: Android browsing and navigation smoke tests
-    needs: android
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: actions/download-artifact@v5
-        with:
-          name: findex-1.1-unsigned-and-debug
-          path: apk
-      - name: Enable emulator acceleration
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - name: Test real Android directory browsing with a large index
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          target: google_apis
-          arch: x86_64
-          profile: pixel_2
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          disable-animations: true
-          script: |
-            adb install -r apk/debug/app-debug.apk
-            adb install -r apk/androidTest/debug/app-debug-androidTest.apk
-            adb shell am instrument -w -r app.findex.files.test/androidx.test.runner.AndroidJUnitRunner > android-device-tests.txt
-            cat android-device-tests.txt
-            python3 scripts/check-instrumentation.py android-device-tests.txt
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: android-device-results
-          path: android-device-tests.txt

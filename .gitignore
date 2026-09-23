@@ -32,3 +32,6 @@ image-search/
 *.apk
 *.aab
 artifacts/
+
+__pycache__/
+*.pyc

@@ -31,11 +31,12 @@ find downloaded-apks -maxdepth 4 -type f -name '*.apk'
 unsigned_apk='downloaded-apks/release/app-release-unsigned.apk'
 test -s "$unsigned_apk"
 "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 4 "$unsigned_apk"
+# PKCS#12 uses the store password for its key. Do not read the same password
+# file twice: apksigner intentionally consumes a new line for each password.
 echo 'Signing the release APK.'
 "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
   --ks "$private_dir/findex-release.p12" --ks-type PKCS12 --ks-key-alias findex \
   --ks-pass "file:$private_dir/keystore-password.txt" \
-  --key-pass "file:$private_dir/keystore-password.txt" \
   --v4-signing-enabled false --min-sdk-version 26 \
   --out release-assets/Findex-1.0.apk "$unsigned_apk"
 echo 'Verifying the signed APK.'

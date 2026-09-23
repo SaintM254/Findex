@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowUpRight, Check, FolderPlus, Info, Pencil, ShieldCheck, Trash2 } from 'lucide-react';
 import type { FileItem } from '../lib/types';
 import { useWorkspace } from '../lib/workspace';
-import { formatBytes, errorMessage } from '../lib/utils';
+import { formatBytes, formatDuration, errorMessage } from '../lib/utils';
 import { repository } from '../lib/native-repository';
 import { FileIcon, Modal, ModalHeader } from './ui';
 
@@ -238,6 +238,18 @@ export function InfoDialog({
           <dt>Modified</dt>
           <dd>{new Date(file.modifiedAt).toLocaleString()}</dd>
         </div>
+        {file.duration ? (
+          <div>
+            <dt>Duration</dt>
+            <dd>{formatDuration(file.duration)}</dd>
+          </div>
+        ) : null}
+        {file.summary && file.category === 'audio' ? (
+          <div>
+            <dt>Track info</dt>
+            <dd>{file.summary}</dd>
+          </div>
+        ) : null}
         {file.width && (
           <div>
             <dt>Dimensions</dt>

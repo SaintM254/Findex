@@ -56,7 +56,11 @@ class MediaViewerActivity : ViewerActivity() {
                         val index = siblings.indexOf(currentFile?.id); siblings.getOrNull(index + direction)?.let { showImage(it) }
                     }, { toolbar.visibility = if (toolbar.visibility == View.VISIBLE) View.GONE else View.VISIBLE })
                     content.addView(photo, FrameLayout.LayoutParams(-1, -1)); showImage(id)
-                } else { addExternalAction(); showPlayer(item.id, item.mime, item.category == "audio") }
+                } else {
+                    addExternalAction()
+                    if (item.category == "audio") addAudioMeta(item)
+                    showPlayer(item.id, item.mime, item.category == "audio")
+                }
             } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) { addExternalAction(); showError(error.message ?: "This media could not be opened.") }
         }
     }
@@ -87,6 +91,37 @@ class MediaViewerActivity : ViewerActivity() {
                 }
                 currentFile = item; titleView.text = item.name; photo?.setPhoto(decoded, initialZoom); initialZoom = 1f
             } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) { showError(error.message ?: "This image could not be decoded.") }
+        }
+    }
+    private fun addAudioMeta(item: FileRecord) {
+        val meta = TextView(this).apply {
+            textSize = 12.5f; setTextColor(0xff9fb4c2.toInt()); gravity = Gravity.CENTER
+            setPadding(dp(24), dp(6), dp(24), dp(6)); maxLines = 2; visibility = View.GONE
+        }
+        content.addView(meta, FrameLayout.LayoutParams(-1, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(72) })
+        lifecycleScope.launch {
+            // Local-only detection: tags and duration come from the file itself.
+            val line = withContext(Dispatchers.IO) {
+                val path = runCatching { StorageEngine.get(this@MediaViewerActivity).resolve(item.id).path }.getOrNull() ?: return@withContext null
+                val retriever = android.media.MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(path)
+                    val seconds = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toDoubleOrNull()?.div(1000)?.takeIf { it > 0 }?.let { Math.round(it) }
+                    val duration = seconds?.let {
+                        val h = it / 3600; val m = (it % 3600) / 60; val sec = it % 60
+                        if (h > 0) String.format("%d:%02d:%02d", h, m, sec) else String.format("%d:%02d", m, sec)
+                    } ?: item.duration?.let { d ->
+                        val t = Math.round(d); val h = t / 3600; val m = (t % 3600) / 60; val sec = t % 60
+                        if (h > 0) String.format("%d:%02d:%02d", h, m, sec) else String.format("%d:%02d", m, sec)
+                    }
+                    val tags = listOfNotNull(
+                        retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST),
+                        retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM)
+                    ).distinct().joinToString(" · ").takeIf { it.isNotBlank() } ?: item.summary?.takeIf { it.isNotBlank() }
+                    listOfNotNull(tags, duration).joinToString("   ·   ").takeIf { it.isNotEmpty() }
+                } catch (_: Exception) { null } finally { runCatching { retriever.release() } }
+            }
+            if (line != null) { meta.text = line; meta.visibility = View.VISIBLE }
         }
     }
     private fun showPlayer(id: String, mime: String, audio: Boolean) {

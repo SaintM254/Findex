@@ -15,9 +15,15 @@ function png(file, size, sourceSvg = outlined) {
 }
 png('public/images/findex-icon.png', 512);
 png('android/app/src/main/res/drawable-nodpi/findex_launcher_art.png', 512);
+// Adaptive launcher masks can crop as far in as the inner two thirds of the
+// canvas, so the foreground keeps the art inside a circle-safe padded zone.
+const padded = outlined
+  .replace(/(<svg[^>]*>)/, '$1<g transform="translate(256 256) scale(0.74) translate(-256 -256)">')
+  .replace('</svg>', '</g></svg>');
+png('android/app/src/main/res/drawable-nodpi/findex_launcher_foreground.png', 512, padded);
 for (const [density, icon, foreground] of [['mdpi',48,108],['hdpi',72,162],['xhdpi',96,216],['xxhdpi',144,324],['xxxhdpi',192,432]]) {
   for (const suffix of ['', '_round']) png(`android/app/src/main/res/mipmap-${density}/ic_launcher${suffix}.png`, icon);
-  png(`android/app/src/main/res/mipmap-${density}/ic_launcher_foreground.png`, foreground);
+  png(`android/app/src/main/res/mipmap-${density}/ic_launcher_foreground.png`, foreground, padded);
 }
 // A cropped mark remains legible in small in-app brand treatments.
 fs.writeFileSync('public/images/findex-mark.svg', outlined.replace('viewBox="0 0 512 512"', 'viewBox="90 125 332 254"').replace('width="512" height="512"', 'width="332" height="254"'));

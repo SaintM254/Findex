@@ -689,7 +689,7 @@ class StorageEngine private constructor(private val context: Context) {
         fun category(extension: String, mime: String): String = when {
             mime.startsWith("image/") || extension in setOf("jpg", "jpeg", "png", "webp", "gif", "heic", "avif", "bmp", "svg") -> "images"
             mime.startsWith("video/") || extension in setOf("mp4", "mkv", "webm", "mov", "avi", "m4v") -> "videos"
-            mime.startsWith("audio/") || extension in setOf("mp3", "wav", "aac", "flac", "m4a", "opus", "ogg") -> "audio"
+            mime.startsWith("audio/") || extension in setOf("mp3", "wav", "aac", "flac", "m4a", "opus", "ogg", "amr", "awb", "aiff", "mka", "wma") -> "audio"
             extension in setOf("pdf", "doc", "docx", "txt", "md", "rtf", "xls", "xlsx", "csv", "ppt", "pptx", "json") -> "documents"
             extension in setOf("zip", "rar", "7z", "tar", "gz", "bz2") -> "archives"
             else -> "other"

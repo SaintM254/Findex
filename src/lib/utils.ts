@@ -18,10 +18,64 @@ export const CATEGORY_ORDER: Category[] = [
   'other',
 ];
 export const DEFAULT_MODELS = {
-  openai: 'gpt-4.1-mini',
-  anthropic: 'claude-sonnet-4-20250514',
+  openai: 'gpt-5-mini',
+  anthropic: 'claude-haiku-4-5',
   gemini: 'gemini-2.5-flash',
+} as const;
+// Providers retire model IDs; saved preferences may still name one that now
+// answers 404. Map known-retired defaults onto their current replacements.
+const RETIRED_MODELS: Record<string, string> = {
+  'gpt-4.1-mini': 'gpt-5-mini',
+  'gpt-4o-mini': 'gpt-5-mini',
+  'claude-sonnet-4-20250514': 'claude-haiku-4-5',
+  'claude-3-5-haiku-20241022': 'claude-haiku-4-5',
+  'claude-3-haiku-20240307': 'claude-haiku-4-5',
+  'gemini-1.5-flash': 'gemini-2.5-flash',
+  'gemini-2.0-flash': 'gemini-2.5-flash',
 };
+export function resolveModel(model: string): string {
+  return RETIRED_MODELS[model] ?? model;
+}
+export function formatDuration(value?: number): string {
+  if (!value || !Number.isFinite(value) || value <= 0) return '';
+  const total = Math.round(value);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return hours ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
+}
+export function probeAudioDuration(blob: Blob): Promise<number> {
+  return new Promise((resolve, reject) => {
+    if (typeof Audio === 'undefined') return reject(new Error('Audio is unavailable here.'));
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio();
+    const timer = setTimeout(fail, 8000);
+    function done(value: number) {
+      clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      resolve(value);
+    }
+    function fail() {
+      clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      reject(new Error('Audio metadata could not be read.'));
+    }
+    audio.preload = 'metadata';
+    audio.addEventListener('loadedmetadata', () =>
+      Number.isFinite(audio.duration) && audio.duration > 0 ? done(audio.duration) : fail(),
+    );
+    audio.addEventListener('error', fail);
+    audio.src = url;
+  });
+}
+export function selectionRange(order: string[], anchor: string, target: string): string[] {
+  const start = order.indexOf(anchor);
+  const end = order.indexOf(target);
+  if (start === -1 || end === -1) return [target];
+  const [lo, hi] = start < end ? [start, end] : [end, start];
+  return order.slice(lo, hi + 1);
+}
 export function extension(name: string): string {
   return name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
 }
@@ -30,7 +84,11 @@ export function categoryFor(name: string, mime = ''): Category {
   if (mime.startsWith('image/') || /^(jpg|jpeg|png|webp|gif|heic|avif|bmp|svg)$/.test(ext))
     return 'images';
   if (mime.startsWith('video/') || /^(mp4|mkv|mov|webm|avi|m4v)$/.test(ext)) return 'videos';
-  if (mime.startsWith('audio/') || /^(mp3|wav|aac|flac|ogg|m4a|opus)$/.test(ext)) return 'audio';
+  if (
+    mime.startsWith('audio/') ||
+    /^(mp3|wav|aac|flac|ogg|m4a|opus|amr|awb|aiff|mka|wma)$/.test(ext)
+  )
+    return 'audio';
   if (/^(pdf|doc|docx|txt|md|rtf|xls|xlsx|csv|ppt|pptx|json|html)$/.test(ext)) return 'documents';
   if (/^(zip|rar|7z|tar|gz|bz2)$/.test(ext)) return 'archives';
   return 'other';

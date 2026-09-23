@@ -1,6 +1,6 @@
 {
   "name": "findex",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "A considered home for your files. Android file manager with a native storage engine.",

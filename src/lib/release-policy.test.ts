@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 describe('Android update identity', () => {
-  it('pins the published v1.1 signer and keeps the application ID', () => {
+  it('pins the published v1.1+ signer and keeps the application ID', () => {
     const policy = JSON.parse(readFileSync(resolve('signing/release-policy.json'), 'utf8'));
     expect(policy.applicationId).toBe('app.findex.files');
     expect(policy.expectedCertificateSha256).toBe(
@@ -11,12 +11,12 @@ describe('Android update identity', () => {
     );
     expect(policy.signingIdentity).toBe('findex-release-v1.1');
     expect(policy.minimumUpdateVersionCode).toBe(2);
-    expect(policy.versionName).toBe('1.1');
-    expect(policy.versionCode).toBe(2);
+    expect(policy.versionName).toBe('1.2');
+    expect(policy.versionCode).toBe(3);
     const gradle = readFileSync(resolve('android/app/build.gradle'), 'utf8');
     expect(gradle).toContain('applicationId "app.findex.files"');
-    expect(gradle).toContain('versionCode 2');
-    expect(gradle).toContain('versionName "1.1"');
+    expect(gradle).toContain('versionCode 3');
+    expect(gradle).toContain('versionName "1.2"');
   });
   it('refuses to mint an update signing key', () => {
     const signer = readFileSync(resolve('scripts/sign-compatible-release.sh'), 'utf8');

@@ -42,7 +42,7 @@ import { repository, FindexNative } from './lib/native-repository';
 import { useWorkspace } from './lib/workspace';
 import { useNativeListing } from './lib/use-native-listing';
 import { indexFiles } from './lib/file-index';
-import { errorMessage } from './lib/utils';
+import { errorMessage, selectionRange } from './lib/utils';
 import type { Category, Clipboard, FileItem, Location, FileSort } from './lib/types';
 
 export default function App() {
@@ -67,6 +67,7 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [searchIds, setSearchIds] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [anchorId, setAnchorId] = useState<string | null>(null);
   const [clipboard, setClipboard] = useState<Clipboard | null>(null);
   const [view, setView] = useState<'list' | 'grid'>('list');
   const [filePage, setFilePage] = useState(0);
@@ -204,19 +205,34 @@ export default function App() {
     if (repository.native && (next.page === 'recent' || next.page === 'trash'))
       setFileSort('modified');
     setSelected(new Set());
+    setAnchorId(null);
     setSearch('');
     setContextMenu(null);
     setMobileOpen(false);
   }, []);
-  const select = useCallback(
-    (id: string) =>
-      setSelected((current) => {
-        const next = new Set(current);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-      }),
-    [],
+  const select = useCallback((id: string) => {
+    setAnchorId(id);
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  // Windows-Explorer style: shift-click selects everything between the last
+  // clicked item and the new one, replacing the previous selection.
+  const selectRangeTo = useCallback(
+    (id: string) => {
+      const order = visible.map((file) => file.id);
+      const start = anchorId && order.includes(anchorId) ? anchorId : id;
+      setAnchorId(id);
+      setSelected(new Set(selectionRange(order, start, id)));
+    },
+    [visible, anchorId],
+  );
+  const handleSelect = useCallback(
+    (id: string, shift?: boolean) => (shift ? selectRangeTo(id) : select(id)),
+    [select, selectRangeTo],
   );
   const selectAll = useCallback(
     () =>
@@ -519,12 +535,13 @@ export default function App() {
     : -1;
   const parentFolder = location.page === 'folder' ? fileIndex.byId.get(location.id || '') : null;
   const actions = useMemo(
-    () => ({ selected, onSelect: select, onOpen: openFile, onMenu: menu }),
-    [selected, select, openFile, menu],
+    () => ({ selected, onSelect: handleSelect, onOpen: openFile, onMenu: menu }),
+    [selected, handleSelect, openFile, menu],
   );
   const changePage = useCallback((page: number) => {
     setFilePage(page);
     setSelected(new Set());
+    setAnchorId(null);
   }, []);
   const changeSort = useCallback((sort: FileSort) => {
     setFileSort(sort);
@@ -855,7 +872,7 @@ export default function App() {
             <span>{selected.size}</span>
             <span>selected</span>
           </div>
-          <IconButton label="Clear selection" onClick={() => setSelected(new Set())}>
+          <IconButton label="Clear selection" onClick={() => { setSelected(new Set()); setAnchorId(null); }}>
             <X size={16} />
           </IconButton>
           <span className="control-divider" />

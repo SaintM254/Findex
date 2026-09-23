@@ -10,7 +10,7 @@ class PreferencesStore(context: Context) {
         val stored = runCatching { JSONObject(shared.getString("preferences", "{}") ?: "{}") }.getOrElse { JSONObject() }
         val provider = stored.optString("provider", "openai")
         return JSONObject().put("theme", stored.optString("theme", "system"))
-            .put("provider", provider).put("model", stored.optString("model", "gpt-4.1-mini"))
+            .put("provider", provider).put("model", stored.optString("model", "gpt-5-mini"))
             .put("metadataConsent", stored.optBoolean("metadataConsent", false))
             .put("showHidden", stored.optBoolean("showHidden", false)).put("hasKey", vault.has(provider))
     }

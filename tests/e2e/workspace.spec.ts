@@ -355,3 +355,17 @@ test('navigation file tools act on the open folder, not the storage root', async
     0,
   );
 });
+
+test('shift-click selects a contiguous range like desktop file managers', async ({ page }) => {
+  await navigate(page, 'All files');
+  const selects = page.locator('.file-row button.file-select');
+  await expect(selects.count()).resolves.toBeGreaterThanOrEqual(3);
+  await selects.nth(0).click();
+  await expect(page.getByRole('toolbar', { name: 'Selected file actions' })).toBeVisible();
+  await expect(page.locator('.selection-count > span').first()).toHaveText('1');
+  await selects.nth(2).click({ modifiers: ['Shift'] });
+  await expect(page.locator('.selection-count > span').first()).toHaveText('3');
+  // A later plain click still toggles a single item.
+  await selects.nth(4).click();
+  await expect(page.locator('.selection-count > span').first()).toHaveText('4');
+});

@@ -143,7 +143,7 @@ class FileCatalog(private val engine: StorageEngine) {
         val root = engine.resolve("root")
         val folders = directory(root).filter { it.attributes.isDirectory }.take(80)
         val fresh = engine.previewEntries(folders.map { it.file to it.attributes }, "root")
-        return (fresh + dao.planningFolders() + dao.agentContext()).distinctBy { it.path }.take(500)
+        return (fresh + dao.planningFolders() + dao.agentContext()).distinctBy { it.path }.take(250)
     }
     fun planningFolders(): List<FileRecord> = dao.planningFolders()
     private fun like(text: String) = "%" + text.lowercase().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"

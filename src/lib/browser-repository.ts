@@ -18,6 +18,8 @@ import {
   isDescendant,
   mimeFor,
   pathFor,
+  probeAudioDuration,
+  resolveModel,
   topLevelSelection,
   uniqueName,
   validateName,
@@ -33,7 +35,7 @@ interface FindexDB extends DBSchema {
 export const defaultPreferences: Preferences = {
   theme: 'system',
   provider: 'openai',
-  model: 'gpt-4.1-mini',
+  model: 'gpt-5-mini',
   metadataConsent: false,
   hasKey: false,
   showHidden: false,
@@ -372,18 +374,21 @@ export class BrowserRepository implements Repository {
       onProgress?.({ completed: i, total: incoming.length, label: `Importing ${name}` });
       const id = crypto.randomUUID();
       const mime = source.type || mimeFor(name);
+      const category = categoryFor(name, mime);
       const summary = /^(txt|md|csv|json)$/.test(extension(name))
         ? (await source.slice(0, 8192).text()).slice(0, 4000)
         : undefined;
       // Hash in the Web Crypto worker pool, with a size guard to avoid huge allocations.
       const hash = source.size <= 128 * 1024 * 1024 ? await fingerprint(source) : undefined;
+      const duration =
+        category === 'audio' ? await probeAudioDuration(source).catch(() => undefined) : undefined;
       const file: FileItem = {
         id,
         name,
         parentId,
         path: pathFor(parentId, name, current),
         kind: 'file',
-        category: categoryFor(name, mime),
+        category,
         extension: extension(name),
         mime,
         size: source.size,
@@ -392,6 +397,7 @@ export class BrowserRepository implements Repository {
         favorite: false,
         summary,
         fingerprint: hash,
+        duration,
       };
       const tx = db.transaction(['files', 'blobs'], 'readwrite');
       await tx.objectStore('files').put(file);
@@ -462,7 +468,7 @@ export class BrowserRepository implements Repository {
       query: prompt,
       files: files
         .filter((file) => !file.trashedAt)
-        .slice(0, 500)
+        .slice(0, 250)
         .map(({ id, name, parentId, kind, category, size, modifiedAt }) => ({
           id,
           name,
@@ -473,7 +479,7 @@ export class BrowserRepository implements Repository {
           modifiedAt,
         })),
     });
-    const model = preferences.model;
+    const model = resolveModel(preferences.model);
     let url: string;
     let body: unknown;
     let headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -486,6 +492,10 @@ export class BrowserRepository implements Repository {
           { role: 'system', content: cloudSystemPrompt },
           { role: 'user', content: context },
         ],
+        max_completion_tokens: 1024,
+        ...(model.startsWith('gpt-5') || model.startsWith('gpt-6')
+          ? { reasoning_effort: 'low' }
+          : {}),
         response_format: { type: 'json_object' },
       };
     } else if (preferences.provider === 'anthropic') {
@@ -499,6 +509,7 @@ export class BrowserRepository implements Repository {
       body = {
         model,
         max_tokens: 1000,
+        temperature: 0,
         system: cloudSystemPrompt,
         messages: [{ role: 'user', content: context }],
       };
@@ -508,7 +519,11 @@ export class BrowserRepository implements Repository {
       body = {
         systemInstruction: { parts: [{ text: cloudSystemPrompt }] },
         contents: [{ parts: [{ text: context }] }],
-        generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 2048 },
+        generationConfig: {
+          responseMimeType: 'application/json',
+          maxOutputTokens: 1024,
+          temperature: 0,
+        },
       };
     }
     const response = await fetch(url, {
@@ -525,7 +540,9 @@ export class BrowserRepository implements Repository {
       throw new Error(
         response.status === 401 || response.status === 403
           ? 'Your API key was not accepted. Check it in Settings.'
-          : `Your provider returned an error (${response.status}). No files were changed.`,
+          : response.status === 404
+            ? `Your provider could not find the model "${model}". Update the model name in Settings (the current defaults are listed there). No files were changed.`
+            : `Your provider returned an error (${response.status}). No files were changed.`,
       );
     const data = await response.json();
     const text =

@@ -26,7 +26,7 @@ import { EmptyState, FileIcon, IconButton } from './ui';
 
 export interface FileListActions {
   selected: Set<string>;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, shift?: boolean) => void;
   onOpen: (file: FileItem) => void;
   onMenu: (file: FileItem, event: MouseEvent<HTMLElement>) => void;
 }
@@ -266,7 +266,7 @@ function FileRow({
           aria-pressed={selected}
           onClick={(event) => {
             event.stopPropagation();
-            actions.onSelect(file.id);
+            actions.onSelect(file.id, event.shiftKey);
           }}
         >
           {selected ? <Check size={12} strokeWidth={2.5} /> : <span />}
@@ -276,12 +276,12 @@ function FileRow({
           role="button"
           tabIndex={0}
           aria-label={`${isTrash ? 'Select' : 'Open'} ${file.name}`}
-          onClick={() => {
+          onClick={(event) => {
             if (hold.wasHeld.current) {
               hold.wasHeld.current = false;
               return;
             }
-            if (isTrash || actions.selected.size) actions.onSelect(file.id);
+            if (isTrash || actions.selected.size) actions.onSelect(file.id, event.shiftKey);
             else actions.onOpen(file);
           }}
           onKeyDown={(event) => {
@@ -349,12 +349,12 @@ function FileCard({ file, ...actions }: FileListActions & { file: FileItem }) {
         role="button"
         tabIndex={0}
         aria-label={`Open ${file.name}`}
-        onClick={() => {
+        onClick={(event) => {
           if (hold.wasHeld.current) {
             hold.wasHeld.current = false;
             return;
           }
-          if (actions.selected.size || file.trashedAt) actions.onSelect(file.id);
+          if (actions.selected.size || file.trashedAt) actions.onSelect(file.id, event.shiftKey);
           else actions.onOpen(file);
         }}
         onKeyDown={(event) => {
@@ -374,7 +374,7 @@ function FileCard({ file, ...actions }: FileListActions & { file: FileItem }) {
       <IconButton
         className={`grid-select ${selected ? 'is-selected' : ''}`}
         label={`${selected ? 'Deselect' : 'Select'} ${file.name}`}
-        onClick={() => actions.onSelect(file.id)}
+        onClick={(event) => actions.onSelect(file.id, event.shiftKey)}
       >
         {selected ? <Check size={16} /> : <CheckCheck size={16} />}
       </IconButton>

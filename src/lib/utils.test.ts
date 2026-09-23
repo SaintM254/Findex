@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   categoryFor,
+  DEFAULT_MODELS,
   descendants,
   fingerprint,
   formatBytes,
+  formatDuration,
   isDescendant,
+  resolveModel,
+  selectionRange,
   topLevelSelection,
   uniqueName,
   validateName,
@@ -67,5 +71,32 @@ describe('filesystem invariants', () => {
       'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
     );
     expect(await fingerprint(new Blob(['abc']))).not.toBe(await fingerprint(new Blob(['abd'])));
+  });
+});
+
+describe('selection ranges and media metadata helpers', () => {
+  it('selects the inclusive range between an anchor and a target, like shift on Windows', () => {
+    const order = ['a', 'b', 'c', 'd', 'e'];
+    expect(selectionRange(order, 'b', 'd')).toEqual(['b', 'c', 'd']);
+    expect(selectionRange(order, 'd', 'b')).toEqual(['b', 'c', 'd']);
+    expect(selectionRange(order, 'c', 'c')).toEqual(['c']);
+    expect(selectionRange(order, 'missing', 'd')).toEqual(['d']);
+  });
+  it('formats audio durations for pills and dialogs', () => {
+    expect(formatDuration(63)).toBe('1:03');
+    expect(formatDuration(3725)).toBe('1:02:05');
+    expect(formatDuration(undefined)).toBe('');
+    expect(formatDuration(Number.NaN)).toBe('');
+  });
+  it('maps retired provider defaults onto current models', () => {
+    expect(resolveModel('claude-sonnet-4-20250514')).toBe('claude-haiku-4-5');
+    expect(resolveModel('gpt-4.1-mini')).toBe('gpt-5-mini');
+    expect(resolveModel('gemini-2.5-flash')).toBe('gemini-2.5-flash');
+    expect(DEFAULT_MODELS.anthropic).toBe('claude-haiku-4-5');
+  });
+  it('recognizes extended local audio formats', () => {
+    expect(categoryFor('voice memo.amr')).toBe('audio');
+    expect(categoryFor('album.mka')).toBe('audio');
+    expect(categoryFor('memo.aiff', 'audio/x-aiff')).toBe('audio');
   });
 });

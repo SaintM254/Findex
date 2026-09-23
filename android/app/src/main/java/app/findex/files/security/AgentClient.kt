@@ -22,7 +22,7 @@ class AgentClient(private val context: Context) {
         require(system.length <= 8000)
         val store = PreferencesStore(context); val preferences = store.read()
         check(preferences.getBoolean("metadataConsent")) { "Allow metadata sharing in Settings before sending a request." }
-        val provider = preferences.getString("provider"); val model = preferences.getString("model")
+        val provider = preferences.getString("provider"); val model = resolveModel(preferences.getString("model"))
         val key = store.vault.read(provider) ?: error("Add an API key in Settings first.")
         val engine = StorageEngine.get(context)
         check(engine.hasPermission()) { "Storage permission is required." }
@@ -41,12 +41,14 @@ class AgentClient(private val context: Context) {
         val request: Request
         when (provider) {
             "openai" -> {
-                val body = JSONObject().put("model", model).put("max_completion_tokens", 2048).put("response_format", JSONObject().put("type", "json_object"))
+                val body = JSONObject().put("model", model).put("max_completion_tokens", 1024)
+                if (model.startsWith("gpt-5") || model.startsWith("gpt-6")) body.put("reasoning_effort", "low")
+                body.put("response_format", JSONObject().put("type", "json_object"))
                     .put("messages", JSONArray().put(JSONObject().put("role", "system").put("content", system)).put(JSONObject().put("role", "user").put("content", payload)))
                 request = Request.Builder().url("https://api.openai.com/v1/chat/completions").header("Authorization", "Bearer $key").post(body.toString().toRequestBody(JSON)).build()
             }
             "anthropic" -> {
-                val body = JSONObject().put("model", model).put("max_tokens", 1000).put("system", system)
+                val body = JSONObject().put("model", model).put("max_tokens", 1000).put("temperature", 0).put("system", system)
                     .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", payload)))
                 request = Request.Builder().url("https://api.anthropic.com/v1/messages").header("x-api-key", key).header("anthropic-version", "2023-06-01").post(body.toString().toRequestBody(JSON)).build()
             }
@@ -54,13 +56,19 @@ class AgentClient(private val context: Context) {
                 val url = "https://generativelanguage.googleapis.com/v1beta/models/".toHttpUrl().newBuilder().addPathSegment("$model:generateContent").build()
                 val body = JSONObject().put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
                     .put("contents", JSONArray().put(JSONObject().put("parts", JSONArray().put(JSONObject().put("text", payload)))))
-                    .put("generationConfig", JSONObject().put("responseMimeType", "application/json").put("maxOutputTokens", 2048))
+                    .put("generationConfig", JSONObject().put("responseMimeType", "application/json").put("maxOutputTokens", 1024).put("temperature", 0))
                 request = Request.Builder().url(url).header("x-goog-api-key", key).post(body.toString().toRequestBody(JSON)).build()
             }
             else -> error("Unsupported provider.")
         }
         client.newCall(request).execute().use { response ->
-            check(response.isSuccessful) { if (response.code == 401 || response.code == 403) "Your API key was not accepted. Check it in Settings." else "Your provider returned error ${response.code}. No files were changed." }
+            check(response.isSuccessful) {
+                when (response.code) {
+                    401, 403 -> "Your API key was not accepted. Check it in Settings."
+                    404 -> "Your provider could not find the model "$model". Update the model name in Settings (the current defaults are listed there). No files were changed."
+                    else -> "Your provider returned error ${response.code}. No files were changed."
+                }
+            }
             val source = response.body?.source() ?: error("Your provider returned an empty response.")
             check(!source.request(2L * 1024 * 1024 + 1)) { "The provider response was unexpectedly large." }
             val data = JSONObject(source.readUtf8())
@@ -85,5 +93,13 @@ class AgentClient(private val context: Context) {
             }
         }
     }
-    companion object { private val JSON = "application/json; charset=utf-8".toMediaType() }
+    companion object {
+        private val JSON = "application/json; charset=utf-8".toMediaType()
+        private val RETIRED = mapOf(
+            "gpt-4.1-mini" to "gpt-5-mini", "gpt-4o-mini" to "gpt-5-mini",
+            "claude-sonnet-4-20250514" to "claude-haiku-4-5", "claude-3-5-haiku-20241022" to "claude-haiku-4-5",
+            "claude-3-haiku-20240307" to "claude-haiku-4-5", "gemini-1.5-flash" to "gemini-2.5-flash", "gemini-2.0-flash" to "gemini-2.5-flash"
+        )
+        private fun resolveModel(model: String) = RETIRED[model] ?: model
+    }
 }

@@ -15,7 +15,7 @@ import {
 import type { FileItem } from '../lib/types';
 import { repository } from '../lib/native-repository';
 import { useWorkspace } from '../lib/workspace';
-import { downloadBlob, errorMessage, formatBytes } from '../lib/utils';
+import { downloadBlob, errorMessage, formatBytes, formatDuration } from '../lib/utils';
 import { IconButton, Modal } from './ui';
 
 const PdfViewer = lazy(() => import('./PdfViewer'));
@@ -38,6 +38,7 @@ export function Viewer({
   const [text, setText] = useState('');
   const [error, setError] = useState('');
   const [mediaError, setMediaError] = useState(false);
+  const [audioMeta, setAudioMeta] = useState('');
   const [loading, setLoading] = useState(true);
   const textFile = /^(txt|md|csv|json|log|xml|yaml|yml|css|js|ts)$/.test(file.extension);
   useEffect(() => {
@@ -46,6 +47,7 @@ export function Viewer({
     setLoading(true);
     setError('');
     setMediaError(false);
+    setAudioMeta('');
     setBlob(null);
     setText('');
     setUrl('');
@@ -162,13 +164,21 @@ export function Viewer({
               <span className="audio-art-wordmark">findex sessions</span>
             </div>
             <h2>{file.name.replace(/\.[^.]+$/, '')}</h2>
-            <span className="audio-subtitle">A moment, just for listening.</span>
+            <span className="audio-subtitle" aria-live="polite">
+              {audioMeta || file.summary || 'A moment, just for listening.'}
+            </span>
             <audio
               key={file.id}
               src={url}
               controls
               preload="metadata"
               onError={() => setMediaError(true)}
+              onLoadedMetadata={(event) => {
+                const duration = formatDuration(event.currentTarget.duration);
+                setAudioMeta(
+                  [file.summary, duration, formatBytes(file.size)].filter(Boolean).join('   ·   '),
+                );
+              }}
               aria-label={file.name}
             />
           </div>

@@ -139,27 +139,42 @@ class PdfViewerActivity : ViewerActivity() {
             holder.box.layoutParams = RecyclerView.LayoutParams(-1, min(20_000f, width * (ratios[position] ?: initialRatio)).roundToInt().coerceAtLeast(1))
             holder.image.contentDescription = "PDF page ${position + 1}"
             val displayWidth = width; val key = "$position:$displayWidth"; holder.key = key
+            if (!rendering.isActive) return
             holder.job = rendering.launch {
                 try {
                     var ratio = ratios[position] ?: initialRatio
-                    val bitmap = cache.get(key) ?: requireNotNull(renderer).openPage(position).use { page ->
-                        ratio = page.height.toFloat() / page.width.coerceAtLeast(1)
-                        var pixels = min(displayWidth, 1600).coerceAtLeast(1)
-                        if (pixels * ratio > 4096) pixels = (4096 / ratio).toInt().coerceAtLeast(1)
-                        val image = Bitmap.createBitmap(pixels, (pixels * ratio).roundToInt().coerceIn(1, 4096), Bitmap.Config.ARGB_8888)
-                        image.eraseColor(Color.WHITE); page.render(image, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        cache.put(key, image); image
+                    val bitmap = cache.get(key) ?: try {
+                        renderPage(position, displayWidth, 1400)
+                    } catch (memory: OutOfMemoryError) {
+                        // A full-size page can exceed a budget device's heap; never
+                        // let an allocation error escape and kill the process.
+                        System.gc()
+                        renderPage(position, displayWidth, 720)
                     }
+                    ratio = bitmap.second
+                    val image = bitmap.first
+                    cache.put(key, image)
                     if (isActive) withContext(Dispatchers.Main) {
                         if (holder.key == key) {
                             ratios[position] = ratio
                             holder.box.layoutParams = RecyclerView.LayoutParams(-1, min(20_000f, displayWidth * ratio).roundToInt().coerceAtLeast(1))
-                            holder.image.setImageBitmap(bitmap); holder.status.visibility = View.GONE
+                            holder.image.setImageBitmap(image); holder.status.visibility = View.GONE
                         }
                     }
-                } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { withContext(Dispatchers.Main) { if (holder.key == key) holder.status.text = "This page could not be rendered." } }
+                } catch (cancelled: CancellationException) { throw cancelled } catch (memory: OutOfMemoryError) { withContext(Dispatchers.Main) { if (holder.key == key) holder.status.text = "This page is too large for the device memory." } } catch (_: Exception) { withContext(Dispatchers.Main) { if (holder.key == key) holder.status.text = "This page could not be rendered." } }
             }
         }
+        /** Renders one page on the single renderer thread; returns the bitmap and aspect ratio. */
+        private fun renderPage(position: Int, displayWidth: Int, limit: Int): Pair<Bitmap, Float> =
+            requireNotNull(renderer).openPage(position).use { page ->
+                val ratio = page.height.toFloat() / page.width.coerceAtLeast(1)
+                var pixels = min(displayWidth, limit).coerceAtLeast(1)
+                if (pixels * ratio > limit * 2) pixels = ((limit * 2) / ratio).toInt().coerceAtLeast(1)
+                val image = Bitmap.createBitmap(pixels, (pixels * ratio).roundToInt().coerceIn(1, limit * 2), Bitmap.Config.ARGB_8888)
+                image.eraseColor(Color.WHITE)
+                page.render(image, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                image to ratio
+            }
         override fun onViewRecycled(holder: PageHolder) { holder.job?.cancel(); holder.key = ""; holder.image.setImageDrawable(null); super.onViewRecycled(holder) }
     }
 }

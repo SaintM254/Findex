@@ -270,6 +270,9 @@ test('navigation taps stay responsive with twelve thousand indexed records', asy
     measurements.push(elapsed);
     await page.locator('.sidebar-close').click();
   }
+  console.log(
+    `12,000-record navigation latency: ${measurements.map((value) => value.toFixed(1)).join(', ')} ms`,
+  );
   expect(Math.max(...measurements)).toBeLessThan(200);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

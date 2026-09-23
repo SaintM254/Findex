@@ -121,7 +121,7 @@ class FindexPlugin : Plugin() {
         val items = result.getJSONArray("files")
         for (index in 0 until items.length()) thumbnail(items.getJSONObject(index))
         if (query.optString("section") in setOf("all", "folder")) {
-            val path = engine.resolve(if (query.optString("section") == "all") "root" else query.getString("id")).path
+            val path = engine.resolve(if (query.optString("section") == "all") "root" else required(call, "id")).path
             withContext(Dispatchers.Main) { if (listingSequence.get() == sequence) watchDirectory(path) }
         }
         result

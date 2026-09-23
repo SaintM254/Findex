@@ -1,0 +1,88 @@
+name: Findex checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: findex-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  workspace:
+    name: Web build and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-results
+          path: test-results/
+  android:
+    name: Android APKs, unit tests, and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - run: npm ci
+      - run: npm run android:sync
+      - name: Build both APK variants and verify native code
+        run: ./gradlew :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest :app:lintDebug :app:lintRelease --stacktrace
+        working-directory: android
+      - name: Verify release version and ZIP alignment
+        run: |
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging android/app/build/outputs/apk/release/app-release-unsigned.apk | head -1
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 4 android/app/build/outputs/apk/release/app-release-unsigned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: findex-apks
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+      - name: Package public tools for private, local release signing
+        run: |
+          mkdir -p "$RUNNER_TEMP/findex-signing-tools"
+          "$JAVA_HOME/bin/jlink" --add-modules java.base,java.logging,java.xml,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.zipfs,jdk.jartool --strip-debug --no-header-files --no-man-pages --compress=2 --output "$RUNNER_TEMP/findex-signing-runtime"
+          tar -czf "$RUNNER_TEMP/findex-signing-tools/runtime.tar.gz" -C "$RUNNER_TEMP" findex-signing-runtime
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" "$RUNNER_TEMP/findex-signing-tools/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signing-tools
+          path: ${{ runner.temp }}/findex-signing-tools/
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-release-mapping
+          path: android/app/build/outputs/mapping/release/mapping.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-reports
+          path: |
+            android/app/build/reports/
+            android/app/schemas/

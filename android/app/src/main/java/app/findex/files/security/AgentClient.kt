@@ -1,0 +1,71 @@
+package app.findex.files.security
+
+import android.content.Context
+import app.findex.files.storage.StorageEngine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.json.JSONArray
+import org.json.JSONObject
+import java.time.Instant
+import java.util.concurrent.TimeUnit
+
+class AgentClient(private val context: Context) {
+    private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(45, TimeUnit.SECONDS)
+        .callTimeout(55, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
+    suspend fun plan(query: String, system: String, timezone: String): JSONObject = withContext(Dispatchers.IO) {
+        require(query.isNotBlank() && query.length <= 1000)
+        require(system.length <= 8000)
+        val store = PreferencesStore(context); val preferences = store.read()
+        check(preferences.getBoolean("metadataConsent")) { "Allow metadata sharing in Settings before sending a request." }
+        val provider = preferences.getString("provider"); val model = preferences.getString("model")
+        val key = store.vault.read(provider) ?: error("Add an API key in Settings first.")
+        val engine = StorageEngine.get(context)
+        check(engine.hasPermission()) { "Storage permission is required." }
+        val metadata = engine.all().filter { it.trashedAt == null }.take(500).map { item ->
+            JSONObject().put("id", item.id).put("name", item.name).put("parentId", item.parentId).put("kind", item.kind)
+                .put("category", item.category).put("size", item.size).put("modifiedAt", item.modifiedAt)
+        }
+        val payload = JSONObject().put("now", Instant.now().toString()).put("timezone", timezone.take(80)).put("query", query).put("files", JSONArray(metadata)).toString()
+        val request: Request
+        when (provider) {
+            "openai" -> {
+                val body = JSONObject().put("model", model).put("max_completion_tokens", 2048).put("response_format", JSONObject().put("type", "json_object"))
+                    .put("messages", JSONArray().put(JSONObject().put("role", "system").put("content", system)).put(JSONObject().put("role", "user").put("content", payload)))
+                request = Request.Builder().url("https://api.openai.com/v1/chat/completions").header("Authorization", "Bearer $key").post(body.toString().toRequestBody(JSON)).build()
+            }
+            "anthropic" -> {
+                val body = JSONObject().put("model", model).put("max_tokens", 1000).put("system", system)
+                    .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", payload)))
+                request = Request.Builder().url("https://api.anthropic.com/v1/messages").header("x-api-key", key).header("anthropic-version", "2023-06-01").post(body.toString().toRequestBody(JSON)).build()
+            }
+            "gemini" -> {
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/".toHttpUrl().newBuilder().addPathSegment("$model:generateContent").build()
+                val body = JSONObject().put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
+                    .put("contents", JSONArray().put(JSONObject().put("parts", JSONArray().put(JSONObject().put("text", payload)))))
+                    .put("generationConfig", JSONObject().put("responseMimeType", "application/json").put("maxOutputTokens", 2048))
+                request = Request.Builder().url(url).header("x-goog-api-key", key).post(body.toString().toRequestBody(JSON)).build()
+            }
+            else -> error("Unsupported provider.")
+        }
+        client.newCall(request).execute().use { response ->
+            check(response.isSuccessful) { if (response.code == 401 || response.code == 403) "Your API key was not accepted. Check it in Settings." else "Your provider returned error ${response.code}. No files were changed." }
+            val source = response.body?.source() ?: error("Your provider returned an empty response.")
+            check(!source.request(2L * 1024 * 1024 + 1)) { "The provider response was unexpectedly large." }
+            val data = JSONObject(source.readUtf8())
+            val text = when (provider) {
+                "openai" -> data.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
+                "anthropic" -> data.getJSONArray("content").let { parts -> (0 until parts.length()).map { parts.getJSONObject(it) }.first { it.optString("type") == "text" }.getString("text") }
+                else -> data.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text")
+            }
+            val cleaned = text.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            // Parsing is not execution: the UI validates the complete allowlisted schema and asks for confirmation.
+            JSONObject(cleaned)
+        }
+    }
+    companion object { private val JSON = "application/json; charset=utf-8".toMediaType() }
+}

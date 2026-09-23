@@ -1,0 +1,51 @@
+{
+  "name": "findex",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A considered home for your files. Android file manager with a native storage engine.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "android:sync": "npm run build && cap sync android",
+    "android:open": "cap open android",
+    "android:debug": "npm run android:sync && cd android && ./gradlew assembleDebug",
+    "test:ui": "playwright test",
+    "test:ui:sandbox": "node scripts/test-browser.mjs",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"*.{ts,json,html,md}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"*.{ts,json,html,md}\""
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.2",
+    "@capacitor/core": "8.5.2",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/manrope": "^5.3.0",
+    "fflate": "^0.8.2",
+    "idb": "^8.0.3",
+    "lucide-react": "^0.468.0",
+    "pdfjs-dist": "^6.3.289",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@capacitor/cli": "^8.4.3",
+    "@playwright/test": "^1.55.0",
+    "@sparticuz/chromium": "^153.0.0",
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^22.18.0",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "fake-indexeddb": "^6.2.2",
+    "jsdom": "^26.1.0",
+    "prettier": "^3.9.8",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.5",
+    "vitest": "^4.1.11"
+  }
+}

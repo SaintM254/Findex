@@ -184,7 +184,8 @@ jobs:
         shell: bash
         run: |
           set +e
-          scripts/release-sign.sh downloaded-apks/release/app-release-unsigned.apk release-assets/Findex-1.1.apk > "$RUNNER_TEMP/sign-release.log" 2>&1
+          version=$(python3 -c 'import json; print(json.load(open("signing/release-policy.json"))["versionName"])')
+          scripts/release-sign.sh downloaded-apks/release/app-release-unsigned.apk "release-assets/Findex-$version.apk" > "$RUNNER_TEMP/sign-release.log" 2>&1
           result=$?
           cat "$RUNNER_TEMP/sign-release.log"
           if [[ "$result" != 0 ]]; then

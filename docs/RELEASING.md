@@ -4,30 +4,30 @@ The first public version is **1.0** (`versionCode 1`, Android `versionName "1.0"
 
 ## Build and test
 
-The `Findex checks` workflow builds the web assets, runs the browser/unit checks, and builds both Android variants with JDK 21 and SDK 36. Native JVM tests, debug/release lint, and release ZIP alignment must pass. The minified release APK in the workflow artifact is unsigned until the next step; it is not an installable distribution by itself.
+The `Findex checks` workflow builds the web assets, runs the browser/unit checks, and builds both Android variants with JDK 21 and SDK 36. Native JVM tests, debug/release lint, and release ZIP alignment must pass. The minified release APK in the build artifact is unsigned until the signing job; do not distribute that unsigned file.
 
-The workflow also exports a minimal OpenJDK runtime and Google's `apksigner.jar`. These public tools allow signing outside the build runner when the connected GitHub integration cannot administer Actions secrets. No private keys are sent to Actions.
+## First-release signing
 
-## Sign privately
+An explicitly authorized push containing `[publish v1.0]` on the existing Arena branch enables the signing job **only after both verification jobs succeed**. It does not merge any branch.
 
-Keep the PKCS#12 release keystore, its password, and the signing certificate backup outside Git. Findex's initial signing material is held in the ignored `.release-signing/` directory of the development workspace. **Back it up securely: all future updates to this app must use the same key.** Do not attach it to a public release or include it in an APK.
+`scripts/prepare-release.sh` generates the first release's RSA signing identity on the isolated runner, creates an installable signed APK, verifies its signatures/alignment, and opens a **draft** GitHub release. This bootstrap refuses to replace an existing `v1.0` release or signing identity.
 
-Using the downloaded signing tools (or a locally installed Android SDK):
+The signing key and password are encrypted before backup using **AES-256-GCM with RSA-OAEP key transport** to the public certificate in `signing/backup-recipient.pem`. Only the corresponding private recipient key in the ignored `.release-signing/` workspace directory can recover that backup. The certificate in Git is public, not a private key.
 
-```sh
-# SIGNING_TOOLS points to the private working copy of the downloaded tools.
-# KEYSTORE and PASSWORD_FILE point to files that are never committed or published.
-"$SIGNING_TOOLS/findex-signing-runtime/bin/java" -jar "$SIGNING_TOOLS/apksigner.jar" sign \
-  --ks "$KEYSTORE" --ks-type PKCS12 --ks-key-alias findex \
-  --ks-pass "file:$PASSWORD_FILE" --key-pass "file:$PASSWORD_FILE" \
-  --min-sdk-version 26 --out artifacts/Findex-1.0.apk \
-  app-release-unsigned.apk
+Authenticated ciphertext is transferred through CI check annotations because this sandbox cannot reach GitHub's artifact-download CDN. Neither the original private key nor its password is printed or committed. Only the APK, public signing-certificate report, and checksum are attached to the release.
 
-"$SIGNING_TOOLS/findex-signing-runtime/bin/java" -jar "$SIGNING_TOOLS/apksigner.jar" verify \
-  --verbose --print-certs artifacts/Findex-1.0.apk
-sha256sum artifacts/Findex-1.0.apk > artifacts/Findex-1.0.apk.sha256
-```
+## Before publishing the draft
 
-Publish only the verified APK and checksum using `gh release create` / `gh release upload`. Target the tested commit on the current Arena branch. Do not merge or push another branch as part of a release.
+1. Recover all encrypted-backup chunks through the check-runs API and verify their SHA-256.
+2. Decrypt the CMS envelope using the local private recipient key; extract only `findex-release.p12` and `keystore-password.txt` into `.release-signing/`.
+3. Verify the PKCS#12 certificate fingerprint matches the signed APK's public certificate report.
+4. Back up this private directory securely. It is excluded from Git and must never become a public release asset.
+5. Publish the draft with `gh release edit v1.0 --draft=false`.
 
-See `RELEASE_CHECKLIST.md` for device-testing and distribution requirements. A passing build is not a claim that every Android/OEM combination has been physically tested.
+## Future updates
+
+**Reuse `findex-release.p12`. Generating a different key will prevent existing installations from accepting an update.** The first-release bootstrap is deliberately not a reusable key-rotation mechanism.
+
+Before another release, the repository owner should configure the existing keystore and password as protected GitHub Actions secrets through GitHub Settings (the current integration cannot administer secrets), or sign locally with Android's `apksigner`. Never paste these credentials into chat or commit them. Increase `versionCode` and set the intended public `versionName` for every update.
+
+See `RELEASE_CHECKLIST.md` for device-testing and distribution requirements. A passing build is not a claim of physical-device/OEM certification.

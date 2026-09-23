@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- This theme attribute was introduced in Android 8.1, not Android 8.0. -->
+    <style name="AppTheme" parent="AppTheme.Base">
+        <item name="android:windowLightNavigationBar">@bool/findex_light_bars</item>
+    </style>
+    <style name="AppTheme.Viewer" parent="AppTheme.ViewerBase">
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

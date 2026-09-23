@@ -102,11 +102,11 @@ npm run test:ui          # Desktop + phone interaction tests
 npm run test:ui:sandbox
 ```
 
-The GitHub Actions workflow runs web checks and an independent Android debug build, JVM tests, and Android lint. It does not sign, publish, merge, or deploy a release.
+The GitHub Actions workflow runs web checks and independent Android debug/release builds, JVM tests, and lint. An explicitly authorized release job can sign an APK and prepare a draft release after those checks pass; it never merges branches. See [`docs/RELEASING.md`](docs/RELEASING.md) for private-key backup and publishing requirements.
 
 ### Current verification boundary
 
-The web build, **50 unit tests**, and **20 desktop/phone browser tests** passed in this sandbox. See [`docs/VERIFICATION.md`](docs/VERIFICATION.md) for the exact checks. **This sandbox has no JDK/Android SDK, and its network blocks Android/Gradle distribution downloads. Consequently, no native APK or physical-device run has been verified here.** The Android code and CI configuration are supplied, but a successful Android build and the device checklist in [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) are required before calling the app production-ready.
+The web build, **50 unit tests**, and **20 desktop/phone browser tests** passed in this sandbox. See [`docs/VERIFICATION.md`](docs/VERIFICATION.md) for the exact checks. **This sandbox has no JDK/Android SDK and cannot reach toolchain/artifact CDNs, so Android compilation and signing run in GitHub Actions.** Release publication is gated on successful builds, native tests, lint, signature verification, and recovery of the private signing backup. Physical-device/OEM certification remains separate: use [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) before treating the app as fully production-qualified.
 
 Real provider credentials were not used to make paid API calls. Verify the configured model and provider access before release.
 

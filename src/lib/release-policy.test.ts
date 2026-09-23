@@ -3,11 +3,11 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 describe('Android update identity', () => {
-  it('pins the published v1.0 signer and keeps the application ID', () => {
+  it('pins the published v1.1 signer and keeps the application ID', () => {
     const policy = JSON.parse(readFileSync(resolve('signing/release-policy.json'), 'utf8'));
     expect(policy.applicationId).toBe('app.findex.files');
     expect(policy.expectedCertificateSha256).toBe(
-      'cdc51b906b006af79a6983318f8bc448c74453732842ca68a7fdbd160f76a3af',
+      'e7c3b49f379c051566a3cdc1911e3ac96442d44926c7f70410b61962f0fd4b93',
     );
     expect(policy.signingIdentity).toBe('findex-release-v1.1');
     expect(policy.minimumUpdateVersionCode).toBe(2);

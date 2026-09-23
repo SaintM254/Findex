@@ -12,6 +12,6 @@ if not match:
 package, code, version = match.groups()
 if package != policy['applicationId'] or int(code) != policy['versionCode'] or version != policy['versionName']:
     raise SystemExit('APK does not match the intended update package/version policy.')
-if int(code) <= 1:
-    raise SystemExit('An update must increase versionCode beyond the published v1.0 build.')
+if int(code) <= int(policy.get('minimumUpdateVersionCode', 2)) - 1:
+    raise SystemExit('An update must increase versionCode beyond the published baseline.')
 print(f'Update package verified: {package}, version {version}, versionCode {code}.')

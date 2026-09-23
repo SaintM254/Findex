@@ -1,33 +1,23 @@
 # Releasing Findex
 
-The first public version is **1.0** (`versionCode 1`, Android `versionName "1.0"`, tag `v1.0`). The npm package uses the equivalent SemVer `1.0.0`.
+Current identity: **v1.1 signing key** (generated 2026-09-23 after the v1.0 key was unrecoverable). v1.0 required a one-time uninstall; **v1.1 and all later versions share this one identity**, so v1.2 installs over v1.1 normally.
 
-## Build and test
+## Automated path
 
-The `Findex checks` workflow builds the web assets, runs the browser/unit checks, and builds both Android variants with JDK 21 and SDK 36. Native JVM tests, debug/release lint, and release ZIP alignment must pass. The minified release APK in the build artifact is unsigned until the signing job; do not distribute that unsigned file.
+`sign-release` runs only on `arena/01a0caa2-findex` after `workspace`, `android`, and `device` succeed, and only for commits marked `[publish release]` (or the one-time `[bootstrap signing]`, now retired because v1.1 exists). It signs the same unsigned APK that passed lint/alignment, verifies the certificate against `signing/release-policy.json`, and creates a **draft** release. The operator publishes the draft only after pinning the certificate and recovering the backup.
 
-## First-release signing
+## Where the key lives
 
-An explicitly authorized push containing `[publish v1.0]` on the existing Arena branch enables the signing job **only after both verification jobs succeed**. It does not merge any branch.
+1. GitHub repository secrets (preferred, durable):
+   - `FINDEX_RELEASE_KEYSTORE_BASE64`
+   - `FINDEX_RELEASE_KEYSTORE_PASSWORD`
+     Store them with `scripts/setup-release-secrets.sh keystore.p12 password-file` from a trusted machine. The current Arena GitHub integration cannot manage secrets (403), so this owner step is required before v1.2 can be signed in CI.
+2. Until the secrets exist, an encrypted copy of the key is retained in the ignored local `.release-signing/` backup created during the v1.1 bootstrap. Recover it with `scripts/recover-release-backup.py <run-id>` if needed. It is never committed, published, or printed.
 
-`scripts/prepare-release.sh` generates the first release's RSA signing identity on the isolated runner, creates an installable signed APK, verifies its signatures/alignment, and opens a **draft** GitHub release. This bootstrap refuses to replace an existing `v1.0` release or signing identity.
+If neither source is available, release signing fails with instructions. No workflow, script, or human step may generate a replacement identity for an update; `scripts/release-sign.sh` refuses bootstrap once `v1.1` exists.
 
-The signing key and password are encrypted before backup using **AES-256-GCM with RSA-OAEP key transport** to the public certificate in `signing/backup-recipient.pem`. Only the corresponding private recipient key in the ignored `.release-signing/` workspace directory can recover that backup. The certificate in Git is public, not a private key.
+## Version updates
 
-Authenticated ciphertext is transferred through CI check annotations because this sandbox cannot reach GitHub's artifact-download CDN. Neither the original private key nor its password is printed or committed. Only the APK, public signing-certificate report, and checksum are attached to the release.
+For v1.2: bump `versionCode`/`versionName` in `android/app/build.gradle`, update `signing/release-policy.json` accordingly, run checks, then push a commit containing `[publish release]`.
 
-## Before publishing the draft
-
-1. Recover all encrypted-backup chunks through the check-runs API and verify their SHA-256.
-2. Decrypt the CMS envelope using the local private recipient key; extract only `findex-release.p12` and `keystore-password.txt` into `.release-signing/`.
-3. Verify the PKCS#12 certificate fingerprint matches the signed APK's public certificate report.
-4. Back up this private directory securely. It is excluded from Git and must never become a public release asset.
-5. Publish the draft with `gh release edit v1.0 --draft=false`.
-
-## Future updates
-
-**Reuse `findex-release.p12`. Generating a different key will prevent existing installations from accepting an update.** The first-release bootstrap is deliberately not a reusable key-rotation mechanism.
-
-Before another release, the repository owner should configure the existing keystore and password as protected GitHub Actions secrets through GitHub Settings (the current integration cannot administer secrets), or sign locally with Android's `apksigner`. Never paste these credentials into chat or commit them. Increase `versionCode` and set the intended public `versionName` for every update.
-
-See `RELEASE_CHECKLIST.md` for device-testing and distribution requirements. A passing build is not a claim of physical-device/OEM certification.
+See `docs/RELEASE_CHECKLIST.md` for device/distribution gates.

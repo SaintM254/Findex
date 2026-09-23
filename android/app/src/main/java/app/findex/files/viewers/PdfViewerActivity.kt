@@ -143,16 +143,18 @@ class PdfViewerActivity : ViewerActivity() {
             holder.job = rendering.launch {
                 try {
                     var ratio = ratios[position] ?: initialRatio
-                    val bitmap = cache.get(key) ?: try {
-                        renderPage(position, displayWidth, 1400)
-                    } catch (memory: OutOfMemoryError) {
-                        // A full-size page can exceed a budget device's heap; never
-                        // let an allocation error escape and kill the process.
-                        System.gc()
-                        renderPage(position, displayWidth, 720)
-                    }
-                    ratio = bitmap.second
-                    val image = bitmap.first
+                    val rendered: Pair<Bitmap, Float> = cache.get(key)
+                        ?.let { image -> image to ratio }
+                        ?: try {
+                            renderPage(position, displayWidth, 1400)
+                        } catch (memory: OutOfMemoryError) {
+                            // A full-size page can exceed a budget device's heap; never
+                            // let an allocation error escape and kill the process.
+                            System.gc()
+                            renderPage(position, displayWidth, 720)
+                        }
+                    ratio = rendered.second
+                    val image = rendered.first
                     cache.put(key, image)
                     if (isActive) withContext(Dispatchers.Main) {
                         if (holder.key == key) {

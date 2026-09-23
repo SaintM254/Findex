@@ -872,7 +872,13 @@ export default function App() {
             <span>{selected.size}</span>
             <span>selected</span>
           </div>
-          <IconButton label="Clear selection" onClick={() => { setSelected(new Set()); setAnchorId(null); }}>
+          <IconButton
+            label="Clear selection"
+            onClick={() => {
+              setSelected(new Set());
+              setAnchorId(null);
+            }}
+          >
             <X size={16} />
           </IconButton>
           <span className="control-divider" />

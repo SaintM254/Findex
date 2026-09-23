@@ -1,10 +1,10 @@
 {
   "applicationId": "app.findex.files",
-  "expectedCertificateSha256": "e7c3b49f379c051566a3cdc1911e3ac96442d44926c7f70410b61962f0fd4b93",
+  "expectedCertificateSha256": "6c11b6deee6b298416c28718f529e13f5da7546c74fb130a15ab00c582160314",
   "firstRelease": "v1.0",
   "versionName": "1.2",
   "versionCode": 3,
   "allowNewSigningKey": false,
-  "signingIdentity": "findex-release-v1.1",
-  "minimumUpdateVersionCode": 2
+  "signingIdentity": "findex-release-v1.2",
+  "minimumUpdateVersionCode": 3
 }

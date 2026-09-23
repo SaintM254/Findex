@@ -17,6 +17,7 @@ fi
 private_dir="$RUNNER_TEMP/findex-release-private"
 mkdir -p "$private_dir" release-assets
 trap 'rm -rf "$private_dir"' EXIT
+echo 'Preparing the private release signing identity.'
 openssl rand -hex 32 > "$private_dir/keystore-password.txt"
 keytool -genkeypair -noprompt -storetype PKCS12 \
   -keystore "$private_dir/findex-release.p12" -alias findex \
@@ -25,15 +26,19 @@ keytool -genkeypair -noprompt -storetype PKCS12 \
   -storepass:file "$private_dir/keystore-password.txt" \
   -keypass:file "$private_dir/keystore-password.txt"
 
+echo 'Inspecting the verified APK artifact.'
+find downloaded-apks -maxdepth 4 -type f -name '*.apk'
 unsigned_apk='downloaded-apks/release/app-release-unsigned.apk'
 test -s "$unsigned_apk"
 "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 4 "$unsigned_apk"
+echo 'Signing the release APK.'
 "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
   --ks "$private_dir/findex-release.p12" --ks-type PKCS12 --ks-key-alias findex \
   --ks-pass "file:$private_dir/keystore-password.txt" \
   --key-pass "file:$private_dir/keystore-password.txt" \
   --v4-signing-enabled false --min-sdk-version 26 \
   --out release-assets/Findex-1.0.apk "$unsigned_apk"
+echo 'Verifying the signed APK.'
 "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs \
   release-assets/Findex-1.0.apk | tee release-assets/Findex-1.0-signature.txt
 "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging release-assets/Findex-1.0.apk > release-assets/apk-badging.txt

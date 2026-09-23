@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   workspace:
+    if: "!contains(github.event.head_commit.message, '[sign tested v1.0]')"
     name: Web build and tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -32,6 +33,7 @@ jobs:
           name: browser-test-results
           path: test-results/
   android:
+    if: "!contains(github.event.head_commit.message, '[sign tested v1.0]')"
     name: Android APKs, unit tests, and lint
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -132,3 +134,62 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: scripts/prepare-release.sh
+
+  sign_verified:
+    name: Sign the already verified v1.0 APK
+    if: github.event_name == 'push' && github.ref == 'refs/heads/arena/01a0caa2-findex' && contains(github.event.head_commit.message, '[sign tested v1.0]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERIFIED_RUN: '35814417633'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Verify prior checks and unchanged application source
+        shell: bash
+        run: |
+          source_sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN" --jq '.head_sha')
+          source_branch=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN" --jq '.head_branch')
+          test "$source_branch" = 'arena/01a0caa2-findex'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN/jobs" > "$RUNNER_TEMP/verified-jobs.json"
+          python3 - "$RUNNER_TEMP/verified-jobs.json" <<'PYTHON'
+          import json, sys
+          jobs = {job['name']: job['conclusion'] for job in json.load(open(sys.argv[1]))['jobs']}
+          required = ['Web build and tests', 'Android APKs, unit tests, and lint']
+          assert all(jobs.get(name) == 'success' for name in required), jobs
+          PYTHON
+          git diff --exit-code "$source_sha" "$GITHUB_SHA" -- android src public package.json package-lock.json capacitor.config.ts vite.config.ts 'tsconfig*.json'
+          echo "APK source and native/web verification matched $source_sha."
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/download-artifact@v5
+        with:
+          github-token: ${{ github.token }}
+          run-id: '35814417633'
+          name: findex-apks
+          path: downloaded-apks
+      - name: Sign verified APK and report actionable diagnostics
+        shell: bash
+        run: |
+          set +e
+          scripts/prepare-release.sh > "$RUNNER_TEMP/release-step.log" 2>&1
+          result=$?
+          cat "$RUNNER_TEMP/release-step.log"
+          if [[ "$result" != 0 ]]; then
+            python3 - "$RUNNER_TEMP/release-step.log" <<'PYTHON'
+          import pathlib, sys
+          lines = [line for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if not line.startswith('::notice')]
+          text = '\n'.join(lines[-45:])[-12000:]
+          for offset in range(0, len(text), 3000):
+              chunk = text[offset:offset + 3000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error title=Release preparation failed (part {offset // 3000 + 1})::{chunk}')
+          PYTHON
+          fi
+          exit "$result"

@@ -87,9 +87,9 @@ if [[ "$source_kind" == "bootstrap" ]]; then
   mkdir -p "$private"
   tar -czf "$work/backup.tar.gz" -C "$work" release.p12 password.txt
   openssl cms -encrypt -binary -aes-256-gcm -outform DER \
-    -in "$work/backup.tar.gz" -out "$private/signing-backup-v1.1.enc" \
+    -in "$work/backup.tar.gz" -out "$private/signing-backup-$version_name.enc" \
     -recip "$root/signing/backup-recipient.pem" -keyopt rsa_padding_mode:oaep
-  python3 - "$private/signing-backup-v1.1.enc" <<'PYTHON'
+  python3 - "$private/signing-backup-$version_name.enc" <<'PYTHON'
 import base64, hashlib, pathlib, sys
 payload = pathlib.Path(sys.argv[1]).read_bytes()
 encoded = base64.b64encode(payload).decode('ascii')

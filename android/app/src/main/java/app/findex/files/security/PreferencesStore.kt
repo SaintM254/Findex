@@ -12,7 +12,7 @@ class PreferencesStore(context: Context) {
         return JSONObject().put("theme", stored.optString("theme", "system"))
             .put("provider", provider).put("model", stored.optString("model", "gpt-4.1-mini"))
             .put("metadataConsent", stored.optBoolean("metadataConsent", false))
-            .put("showHidden", stored.optBoolean("showHidden", false)).put("hasKey", !vault.read(provider).isNullOrBlank())
+            .put("showHidden", stored.optBoolean("showHidden", false)).put("hasKey", vault.has(provider))
     }
     fun save(input: JSONObject, apiKey: String?) {
         val provider = input.optString("provider", "openai")
@@ -23,7 +23,7 @@ class PreferencesStore(context: Context) {
         require(model.isNotEmpty() && model.length <= 120) { "Enter a valid model name." }
         if (apiKey != null) vault.save(provider, apiKey)
         val consent = input.optBoolean("metadataConsent", false)
-        check(!consent || !vault.read(provider).isNullOrBlank()) { "Save an API key before allowing metadata sharing." }
+        check(!consent || vault.has(provider)) { "Save an API key before allowing metadata sharing." }
         val safe = JSONObject().put("provider", provider).put("model", model).put("theme", theme)
             .put("metadataConsent", consent).put("showHidden", input.optBoolean("showHidden", false))
         check(shared.edit().putString("preferences", safe.toString()).commit()) { "Preferences could not be saved." }

@@ -46,11 +46,15 @@ export function Assistant({ initialPrompt, onClose, openSettings, onOpenFile }: 
   const snapshot = useRef<FileItem[]>([]);
   const [planFiles, setPlanFiles] = useState<FileItem[]>(files);
   const [reviewPage, setReviewPage] = useState(0);
+  const [nativeResults, setNativeResults] = useState<FileItem[] | null>(null);
+  const [matchTotal, setMatchTotal] = useState(0);
   const indexedById = useMemo(() => new Map(planFiles.map((file) => [file.id, file])), [planFiles]);
   const results = useMemo(
     () =>
-      plan && (plan.kind === 'search' || plan.kind === 'move') ? filesForPlan(plan, planFiles) : [],
-    [plan, planFiles],
+      plan && (plan.kind === 'search' || plan.kind === 'move')
+        ? (nativeResults ?? filesForPlan(plan, planFiles))
+        : [],
+    [plan, planFiles, nativeResults],
   );
   const moves = useMemo(
     () => (plan?.kind === 'organize' ? organizePlan(plan.sourceFolder!, planFiles) : []),
@@ -90,24 +94,54 @@ export function Assistant({ initialPrompt, onClose, openSettings, onOpenFile }: 
     setAnalysis(null);
     setCompleted(false);
     setReviewPage(0);
+    setNativeResults(null);
+    setMatchTotal(0);
     try {
-      const latest = await repository.load();
-      snapshot.current = latest.files;
-      const next = cloud
-        ? await repository.askAgent(value, latest.files)
-        : planLocally(value, latest.files);
+      const context = repository.planningContext
+        ? await repository.planningContext()
+        : (await repository.load()).files;
+      const next = cloud ? await repository.askAgent(value, context) : planLocally(value, context);
+      let reviewed = context;
+      let matches: FileItem[] | null = null;
       let report: Analysis | null = null;
       if (next.kind === 'analyze' || next.kind === 'cleanup') {
         report = await repository.analyze();
-        snapshot.current = (await repository.load()).files;
+        reviewed = repository.native
+          ? [...report.cleanup, ...report.emptyFolders]
+          : (await repository.load()).files;
+        setMatchTotal(report.candidateCount || reviewed.length);
+      } else if (repository.listFiles) {
+        const page = await repository.listFiles(
+          next.kind === 'organize'
+            ? {
+                section: 'folder',
+                id: next.sourceFolder,
+                filesOnly: true,
+                pageSize: 500,
+                sort: 'name',
+                showHidden: true,
+              }
+            : {
+                section: 'plan',
+                filter: next.filter,
+                pageSize: 500,
+                sort: 'modified',
+                showHidden: true,
+              },
+        );
+        reviewed = [...context.filter((file) => file.id === next.sourceFolder), ...page.files];
+        matches = page.files;
+        setNativeResults(matches);
+        setMatchTotal(page.total);
       }
-      setPlanFiles(snapshot.current);
+      snapshot.current = reviewed;
+      setPlanFiles(reviewed);
       setPlan(next);
       setAnalysis(report);
       if (next.kind === 'organize')
-        setPicked(new Set(organizePlan(next.sourceFolder!, latest.files).map((move) => move.id)));
+        setPicked(new Set(organizePlan(next.sourceFolder!, reviewed).map((move) => move.id)));
       if (next.kind === 'move')
-        setPicked(new Set(filesForPlan(next, latest.files).map((file) => file.id)));
+        setPicked(new Set((matches || filesForPlan(next, reviewed)).map((file) => file.id)));
       if (next.kind === 'cleanup' && report)
         setPicked(
           new Set(
@@ -138,6 +172,8 @@ export function Assistant({ initialPrompt, onClose, openSettings, onOpenFile }: 
     });
   }
   async function ensurePath(path: string, rootId: string) {
+    if (repository.ensureFolderPath)
+      return repository.ensureFolderPath(validateDestination(path), rootId);
     const segments = validateDestination(path).split('/');
     let parentId = rootId;
     for (const name of segments) {
@@ -157,8 +193,10 @@ export function Assistant({ initialPrompt, onClose, openSettings, onOpenFile }: 
     const success = await run(
       'Putting your plan into motion',
       async (onProgress) => {
-        const latest = await repository.load();
-        const currentById = new Map(latest.files.map((file) => [file.id, file]));
+        const currentFiles = repository.inspectFiles
+          ? await repository.inspectFiles([...picked])
+          : (await repository.load()).files;
+        const currentById = new Map(currentFiles.map((file) => [file.id, file]));
         for (const id of picked) {
           const before = indexedById.get(id);
           const current = currentById.get(id);
@@ -343,6 +381,12 @@ export function Assistant({ initialPrompt, onClose, openSettings, onOpenFile }: 
                   <WaveMark />
                 </div>
                 <h3>{completed ? 'A little more in its place.' : plan.title}</h3>
+                {repository.native && matchTotal > 500 && (
+                  <p className="index-note">
+                    Showing up to 500 candidates from {matchTotal.toLocaleString()} matches. Only
+                    the files in this review can be changed; repeat the request for the rest.
+                  </p>
+                )}
                 <p className="answer-explanation">
                   {completed
                     ? 'Your plan is complete. You’re free to get back to the good stuff.'

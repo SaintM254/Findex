@@ -3,6 +3,9 @@ import type {
   AgentPlan,
   Analysis,
   FileItem,
+  FilePage,
+  FileQuery,
+  OperationResult,
   OperationRequest,
   Preferences,
   Progress,
@@ -14,11 +17,15 @@ import { BrowserRepository } from './browser-repository';
 
 interface FindexPlugin {
   load(): Promise<WorkspaceSnapshot>;
+  listFiles(query: FileQuery): Promise<FilePage>;
+  inspectFiles(options: { ids: string[]; details?: boolean }): Promise<{ files: FileItem[] }>;
+  planningContext(): Promise<{ files: FileItem[] }>;
+  ensureFolderPath(options: { path: string; parentId: string }): Promise<{ id: string }>;
   requestPermission(): Promise<void>;
   createFolder(options: { name: string; parentId: string }): Promise<{ id: string }>;
   rename(options: { id: string; name: string }): Promise<void>;
   setFavorite(options: { id: string; favorite: boolean }): Promise<void>;
-  operate(options: OperationRequest): Promise<void>;
+  operate(options: OperationRequest): Promise<OperationResult>;
   pickFiles(options: { parentId: string }): Promise<void>;
   readFile(options: { id: string }): Promise<{ uri: string }>;
   openFile(options: { id: string }): Promise<void>;
@@ -33,21 +40,37 @@ interface FindexPlugin {
   cancelOperation(): Promise<void>;
   exitApp(): Promise<void>;
   addListener(
-    event: 'progress' | 'indexUpdated' | 'insets',
-    callback: (data: Progress & { top?: number; bottom?: number }) => void,
+    event: 'progress' | 'indexUpdated' | 'insets' | 'directoryChanged',
+    callback: (data: Progress & { top?: number; bottom?: number; path?: string }) => void,
   ): Promise<PluginListenerHandle>;
 }
 export const FindexNative = registerPlugin<FindexPlugin>('Findex');
 class NativeRepository implements Repository {
   native = true;
-  async load() {
-    const snapshot = await FindexNative.load();
-    snapshot.files = snapshot.files.map((file) =>
+  private thumbnails(files: FileItem[]) {
+    return files.map((file) =>
       file.category === 'images' && !file.trashedAt && file.previewUrl
         ? { ...file, previewUrl: Capacitor.convertFileSrc(file.previewUrl) }
         : file,
     );
+  }
+  async load() {
+    const snapshot = await FindexNative.load();
+    snapshot.files = this.thumbnails(snapshot.files);
     return snapshot;
+  }
+  async listFiles(query: FileQuery) {
+    const result = await FindexNative.listFiles(query);
+    return { ...result, files: this.thumbnails(result.files) };
+  }
+  async inspectFiles(ids: string[], details = false) {
+    return this.thumbnails((await FindexNative.inspectFiles({ ids, details })).files);
+  }
+  async planningContext() {
+    return (await FindexNative.planningContext()).files;
+  }
+  async ensureFolderPath(path: string, parentId: string) {
+    return (await FindexNative.ensureFolderPath({ path, parentId })).id;
   }
   requestPermission() {
     return FindexNative.requestPermission();
@@ -66,7 +89,7 @@ class NativeRepository implements Repository {
       onProgress?.(progress),
     );
     try {
-      await FindexNative.operate(request);
+      return await FindexNative.operate(request);
     } finally {
       await listener.remove();
     }

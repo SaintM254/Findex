@@ -337,7 +337,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
         </div>
         <div className="settings-footer">
           <span>
-            Findex <span className="version-pill">1.0</span>
+            Findex <span className="version-pill">1.1</span>
           </span>
           <button type="submit" className="primary-button" disabled={saving}>
             {saving ? 'Saving…' : 'Save preferences'}

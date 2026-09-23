@@ -1,15 +1,26 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent,
+} from 'react';
 import {
   ArrowDownWideNarrow,
   Check,
   CheckCheck,
+  ChevronLeft,
+  ChevronRight,
   Grid2X2,
   List,
   MoreHorizontal,
   Search,
   Star,
 } from 'lucide-react';
-import type { FileItem } from '../lib/types';
+import { indexFiles } from '../lib/file-index';
+import type { FileItem, FileSort } from '../lib/types';
 import { formatBytes, relativeDate } from '../lib/utils';
 import { EmptyState, FileIcon, IconButton } from './ui';
 
@@ -26,6 +37,15 @@ interface Props extends FileListActions {
   setView: (view: 'list' | 'grid') => void;
   compact?: boolean;
   isTrash?: boolean;
+  pagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+    onPage: (page: number) => void;
+    sort: FileSort;
+    onSort: (sort: FileSort) => void;
+    loading?: boolean;
+  };
 }
 export function useLongPress(onHold: () => void) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -57,26 +77,32 @@ export function useLongPress(onHold: () => void) {
     },
   };
 }
-export function FileList({
+export const FileList = memo(function FileList({
   files,
   allFiles,
   view,
   setView,
   compact = false,
   isTrash = false,
+  pagination,
   ...actions
 }: Props) {
-  const [sort, setSort] = useState('modified');
+  const [localSort, setLocalSort] = useState<FileSort>('modified');
+  const sort = pagination?.sort || localSort;
+  const setSort = pagination?.onSort || setLocalSort;
+  const allIndex = useMemo(() => indexFiles(allFiles), [allFiles]);
   const [limit, setLimit] = useState(80);
   const sorted = useMemo(
     () =>
-      [...files].sort((a, b) => {
-        if (!compact && a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
-        if (sort === 'name') return a.name.localeCompare(b.name, undefined, { numeric: true });
-        if (sort === 'size') return b.size - a.size;
-        return isTrash ? b.trashedAt! - a.trashedAt! : b.modifiedAt - a.modifiedAt;
-      }),
-    [files, sort, compact, isTrash],
+      pagination
+        ? files
+        : [...files].sort((a, b) => {
+            if (!compact && a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
+            if (sort === 'name') return a.name.localeCompare(b.name, undefined, { numeric: true });
+            if (sort === 'size') return b.size - a.size;
+            return isTrash ? b.trashedAt! - a.trashedAt! : b.modifiedAt - a.modifiedAt;
+          }),
+    [files, sort, compact, isTrash, pagination],
   );
   if (!files.length)
     return (
@@ -95,7 +121,8 @@ export function FileList({
       {!compact && (
         <div className="file-toolbar">
           <span className="file-count">
-            {files.length} {files.length === 1 ? 'item' : 'items'}
+            {pagination?.total ?? files.length}{' '}
+            {(pagination?.total ?? files.length) === 1 ? 'item' : 'items'}
             <span className="file-count-dot">·</span>
             {formatBytes(
               files
@@ -109,7 +136,7 @@ export function FileList({
               <select
                 aria-label="Sort files"
                 value={sort}
-                onChange={(event) => setSort(event.target.value)}
+                onChange={(event) => setSort(event.target.value as FileSort)}
               >
                 <option value="modified">Last modified</option>
                 <option value="name">Name</option>
@@ -166,7 +193,11 @@ export function FileList({
               <FileRow
                 key={file.id}
                 file={file}
-                allFiles={allFiles}
+                parentName={
+                  allIndex.byId.get(file.parentId || '')?.name ||
+                  file.path.slice(0, file.path.lastIndexOf('/')).split('/').pop() ||
+                  'Internal storage'
+                }
                 isTrash={isTrash}
                 {...actions}
               />
@@ -174,7 +205,32 @@ export function FileList({
           </div>
         </div>
       )}
-      {files.length > limit && (
+      {pagination && pagination.total > pagination.pageSize && (
+        <nav className="file-pagination" aria-label="File pages">
+          <span>
+            {pagination.page * pagination.pageSize + 1}–
+            {Math.min((pagination.page + 1) * pagination.pageSize, pagination.total)} of{' '}
+            {pagination.total}
+          </span>
+          <IconButton
+            label="Previous files"
+            disabled={pagination.page === 0 || pagination.loading}
+            onClick={() => pagination.onPage(pagination.page - 1)}
+          >
+            <ChevronLeft size={19} />
+          </IconButton>
+          <IconButton
+            label="Next files"
+            disabled={
+              (pagination.page + 1) * pagination.pageSize >= pagination.total || pagination.loading
+            }
+            onClick={() => pagination.onPage(pagination.page + 1)}
+          >
+            <ChevronRight size={19} />
+          </IconButton>
+        </nav>
+      )}
+      {!pagination && files.length > limit && (
         <button
           className="load-more secondary-button"
           onClick={() => setLimit((value) => value + 80)}
@@ -184,16 +240,15 @@ export function FileList({
       )}
     </div>
   );
-}
+});
 function FileRow({
   file,
-  allFiles,
+  parentName,
   isTrash,
   ...actions
-}: FileListActions & { file: FileItem; allFiles: FileItem[]; isTrash: boolean }) {
+}: FileListActions & { file: FileItem; parentName: string; isTrash: boolean }) {
   const selected = actions.selected.has(file.id);
   const hold = useLongPress(() => actions.onSelect(file.id));
-  const parent = allFiles.find((item) => item.id === file.parentId);
   return (
     <div
       role="row"
@@ -255,7 +310,7 @@ function FileRow({
         </div>
       </div>
       <div role="cell" className="location-column">
-        <span className="location-pill">{parent?.name || 'Internal storage'}</span>
+        <span className="location-pill">{parentName}</span>
       </div>
       <div role="cell" className="modified-column">
         {relativeDate(isTrash ? file.trashedAt! : file.modifiedAt)}
@@ -311,7 +366,7 @@ function FileCard({ file, ...actions }: FileListActions & { file: FileItem }) {
         }}
       >
         {file.category === 'images' && file.previewUrl ? (
-          <img src={file.previewUrl} alt={file.name} loading="lazy" />
+          <img src={file.previewUrl} alt={file.name} loading="lazy" decoding="async" />
         ) : (
           <FileIcon file={file} large />
         )}

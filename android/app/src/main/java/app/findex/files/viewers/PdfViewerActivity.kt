@@ -98,8 +98,8 @@ class PdfViewerActivity : ViewerActivity() {
             }
         })
         pill = TextView(this).apply {
-            textSize = 12f; gravity = Gravity.CENTER; setTextColor(0xffe2ebdb.toInt()); setPadding(dp(18), dp(12), dp(18), dp(12))
-            background = GradientDrawable().apply { cornerRadius = dp(22).toFloat(); setColor(0xe6334634.toInt()) }
+            textSize = 12f; gravity = Gravity.CENTER; setTextColor(0xffdbe4eb.toInt()); setPadding(dp(18), dp(12), dp(18), dp(12))
+            background = GradientDrawable().apply { cornerRadius = dp(22).toFloat(); setColor(0xe6333e46.toInt()) }
             elevation = dp(8).toFloat(); contentDescription = "Document page count"
         }
         root.addView(pill, FrameLayout.LayoutParams(-2, dp(44), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(23) + bottomInset })
@@ -121,7 +121,7 @@ class PdfViewerActivity : ViewerActivity() {
     }
     private inner class PageHolder(val box: FrameLayout) : RecyclerView.ViewHolder(box) {
         val image = ImageView(this@PdfViewerActivity).apply { scaleType = ImageView.ScaleType.FIT_XY; setBackgroundColor(Color.WHITE) }
-        val status = TextView(this@PdfViewerActivity).apply { gravity = Gravity.CENTER; setTextColor(0xff8e9e81.toInt()); textSize = 12f; text = "Preparing page…" }
+        val status = TextView(this@PdfViewerActivity).apply { gravity = Gravity.CENTER; setTextColor(0xff81929e.toInt()); textSize = 12f; text = "Preparing page…" }
         var job: Job? = null
         var key = ""
         init { box.addView(image, FrameLayout.LayoutParams(-1, -1)); box.addView(status, FrameLayout.LayoutParams(-1, -1)); box.elevation = dp(2).toFloat() }
@@ -178,7 +178,7 @@ private class PdfViewport(context: Context, private val widthChanged: (Int) -> U
         override fun onDown(event: MotionEvent) = true
         override fun onDoubleTap(event: MotionEvent): Boolean { setZoom(if (zoom > 1.1f) 1f else 2f); return true }
     })
-    init { clipChildren = true; setBackgroundColor(0xffd9dfd4.toInt()); addView(list, LayoutParams(-1, -1)) }
+    init { clipChildren = true; setBackgroundColor(0xffd4dadf.toInt()); addView(list, LayoutParams(-1, -1)) }
     fun pageWidth(): Int = (width * zoom).roundToInt() - list.paddingLeft - list.paddingRight
     fun changeZoom(delta: Float) = setZoom(zoom + delta)
     fun setZoom(value: Float) {

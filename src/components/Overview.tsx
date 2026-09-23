@@ -1,6 +1,8 @@
+import { memo, useMemo } from 'react';
+import { indexFiles } from '../lib/file-index';
 import { ArrowRight, ArrowUpRight, Check, ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { FileItem, Location } from '../lib/types';
-import { CATEGORY_LABELS, CATEGORY_ORDER, folderBytes, formatBytes } from '../lib/utils';
+import { CATEGORY_LABELS, CATEGORY_ORDER, formatBytes } from '../lib/utils';
 import { useWorkspace } from '../lib/workspace';
 import { CategoryIcon, FolderGlyph, IconButton, WaveMark } from './ui';
 import { FileList, useLongPress, type FileListActions } from './FileList';
@@ -11,30 +13,42 @@ interface Props extends FileListActions {
   view: 'list' | 'grid';
   setView: (view: 'list' | 'grid') => void;
 }
-export function Overview({ navigate, assistant, view, setView, ...actions }: Props) {
-  const { files, storage } = useWorkspace();
-  const live = files.filter((file) => !file.trashedAt);
-  const documents = live.filter((file) => file.kind === 'file');
-  const total = documents.reduce((sum, file) => sum + file.size, 0);
-  const distribution = CATEGORY_ORDER.map((category) => ({
-    category,
-    bytes: documents
-      .filter((file) => file.category === category)
-      .reduce((sum, file) => sum + file.size, 0),
-    count: documents.filter((file) => file.category === category).length,
-  }));
-  const folders = live
-    .filter((file) => file.kind === 'folder' && file.pinned)
-    .sort(
-      (a, b) =>
-        ['sage', 'sand', 'lavender', 'blue'].indexOf(a.color || 'sage') -
-        ['sage', 'sand', 'lavender', 'blue'].indexOf(b.color || 'sage'),
-    )
-    .slice(0, 4);
-  const quickFolders = folders.length
-    ? folders
-    : live.filter((file) => file.kind === 'folder' && file.parentId === storage.rootId).slice(0, 4);
-  const recent = [...documents].sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 5);
+export const Overview = memo(function Overview({
+  navigate,
+  assistant,
+  view,
+  setView,
+  ...actions
+}: Props) {
+  const { files, storage, summary } = useWorkspace();
+  const index = useMemo(() => indexFiles(files), [files]);
+  const live = index.live;
+  const documents = useMemo(() => live.filter((file) => file.kind === 'file'), [live]);
+  const distribution = CATEGORY_ORDER.map(
+    (category) =>
+      summary?.categories.find((item) => item.category === category) ||
+      index.categories.find((item) => item.category === category)!,
+  );
+  const total = distribution.reduce((sum, item) => sum + item.bytes, 0);
+  const fileCount = distribution.reduce((sum, item) => sum + item.count, 0);
+  const quickFolders = useMemo(() => {
+    const pinned = [...index.pinned]
+      .sort(
+        (a, b) =>
+          ['sage', 'sand', 'lavender', 'blue'].indexOf(a.color || 'sage') -
+          ['sage', 'sand', 'lavender', 'blue'].indexOf(b.color || 'sage'),
+      )
+      .slice(0, 4);
+    return pinned.length
+      ? pinned
+      : (index.children.get(storage.rootId) || [])
+          .filter((file) => file.kind === 'folder' && !file.trashedAt)
+          .slice(0, 4);
+  }, [index, storage.rootId]);
+  const recent = useMemo(
+    () => [...documents].sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 5),
+    [documents],
+  );
   const storageValue = formatBytes(storage.isDemo ? total : storage.used);
   const [amount, unit] = storageValue.split(' ');
   return (
@@ -69,7 +83,7 @@ export function Overview({ navigate, assistant, view, setView, ...actions }: Pro
         </section>
         <section className="storage-card surface-card">
           <div className="card-topline">
-            <h3>{storage.isDemo ? 'Your storage' : 'Internal storage'}</h3>
+            <h3>{storage.isDemo ? 'Your storage' : 'Device storage'}</h3>
             <IconButton label="Analyze storage" onClick={() => assistant('Analyze my storage')}>
               <MoreHorizontal size={20} />
             </IconButton>
@@ -84,7 +98,7 @@ export function Overview({ navigate, assistant, view, setView, ...actions }: Pro
           <div
             className="storage-meter"
             title="Colored segments describe indexed files across available volumes"
-            aria-label={`${documents.length} indexed files using ${formatBytes(storage.indexed)}`}
+            aria-label={`${fileCount} indexed files using ${formatBytes(storage.indexed)}`}
           >
             {distribution
               .filter((item) => item.bytes > 0)
@@ -169,9 +183,15 @@ export function Overview({ navigate, assistant, view, setView, ...actions }: Pro
               onSelect={() => actions.onSelect(file.id)}
               onMenu={(event) => actions.onMenu(file, event)}
               count={
-                live.filter((child) => child.kind === 'file' && child.parentId === file.id).length
+                summary?.folders?.find((item) => item.id === file.id)?.count ??
+                index.directFileCount.get(file.id) ??
+                0
               }
-              size={folderBytes(file.id, files)}
+              size={
+                summary?.folders?.find((item) => item.id === file.id)?.bytes ??
+                index.bytes.get(file.id) ??
+                0
+              }
             />
           ))}
         </div>
@@ -205,7 +225,7 @@ export function Overview({ navigate, assistant, view, setView, ...actions }: Pro
       </div>
     </div>
   );
-}
+});
 function QuickFolder({
   file,
   selected,

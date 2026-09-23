@@ -1,3 +1,4 @@
+import { indexFiles } from './file-index';
 import type { Category, FileItem } from './types';
 
 export const CATEGORY_LABELS: Record<Category, string> = {
@@ -96,7 +97,7 @@ export function uniqueName(name: string, existing: string[]): string {
   return `${stem} (${n})${suffix}`;
 }
 export function isDescendant(id: string, possibleAncestor: string, files: FileItem[]): boolean {
-  const byId = new Map(files.map((file) => [file.id, file]));
+  const { byId } = indexFiles(files);
   const seen = new Set<string>();
   let current: string | null | undefined = id;
   while (current && !seen.has(current)) {
@@ -107,25 +108,40 @@ export function isDescendant(id: string, possibleAncestor: string, files: FileIt
   return false;
 }
 export function descendants(id: string, files: FileItem[]): FileItem[] {
-  return files.filter((file) => isDescendant(file.id, id, files));
+  const { byId, children } = indexFiles(files);
+  const result: FileItem[] = [];
+  const queue = [id];
+  const seen = new Set<string>();
+  for (let cursor = 0; cursor < queue.length; cursor++) {
+    const current = queue[cursor];
+    if (seen.has(current)) continue;
+    seen.add(current);
+    const item = byId.get(current);
+    if (item) result.push(item);
+    for (const child of children.get(current) || []) queue.push(child.id);
+  }
+  return result;
 }
 export function topLevelSelection(ids: string[], files: FileItem[]): string[] {
   const selected = new Set(ids);
-  return ids.filter(
-    (id) =>
-      !files.some(
-        (file) => file.id !== id && selected.has(file.id) && isDescendant(id, file.id, files),
-      ),
-  );
+  const { byId } = indexFiles(files);
+  return [...selected].filter((id) => {
+    let parent = byId.get(id)?.parentId;
+    const visited = new Set<string>([id]);
+    while (parent && !visited.has(parent)) {
+      if (selected.has(parent)) return false;
+      visited.add(parent);
+      parent = byId.get(parent)?.parentId;
+    }
+    return true;
+  });
 }
 export function pathFor(parentId: string, name: string, files: FileItem[]): string {
   const parent = files.find((file) => file.id === parentId);
   return `${parent?.path || ''}/${name}`;
 }
 export function folderBytes(folderId: string, files: FileItem[]): number {
-  return descendants(folderId, files)
-    .filter((file) => file.kind === 'file' && !file.trashedAt)
-    .reduce((sum, file) => sum + file.size, 0);
+  return indexFiles(files).bytes.get(folderId) || 0;
 }
 export function downloadBlob(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);

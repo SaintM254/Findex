@@ -35,11 +35,7 @@ export function IconButton({
 export function Logo({ small = false }: { small?: boolean }) {
   return (
     <div className={`logo ${small ? 'small' : ''}`}>
-      <svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
-        <rect width="40" height="40" rx="12" fill="currentColor" />
-        <path d="M10 14a3 3 0 0 1 3-3h6l4 4h7v15H13a3 3 0 0 1-3-3V14Z" fill="#dbeac6" />
-        <path d="M16 20h13v3H19v4h-3v-7Z" fill="#2b503b" />
-      </svg>
+      <img src="/images/findex-mark.svg" alt="" aria-hidden="true" decoding="async" />
       {!small && (
         <span>
           findex<span className="logo-dot">.</span>

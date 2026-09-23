@@ -1,6 +1,6 @@
 {
   "name": "findex",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "A considered home for your files. Android file manager with a native storage engine.",
@@ -16,7 +16,8 @@
     "test:ui": "playwright test",
     "test:ui:sandbox": "node scripts/test-browser.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"*.{ts,json,html,md}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"*.{ts,json,html,md}\""
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"*.{ts,json,html,md}\"",
+    "branding": "node scripts/generate-branding.mjs"
   },
   "dependencies": {
     "@capacitor/android": "8.5.2",
@@ -34,6 +35,7 @@
     "@axe-core/playwright": "^4.13.0",
     "@capacitor/cli": "^8.4.3",
     "@playwright/test": "^1.55.0",
+    "@resvg/resvg-js": "^2.6.2",
     "@sparticuz/chromium": "^153.0.0",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
@@ -43,6 +45,7 @@
     "@vitejs/plugin-react": "^5.0.2",
     "fake-indexeddb": "^6.2.2",
     "jsdom": "^26.1.0",
+    "opentype.js": "^2.0.0",
     "prettier": "^3.9.8",
     "typescript": "~5.9.2",
     "vite": "^7.1.5",

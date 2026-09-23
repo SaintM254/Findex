@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowUpRight, Check, FolderPlus, Info, Pencil, ShieldCheck, Trash2 } from 'lucide-react';
 import type { FileItem } from '../lib/types';
 import { useWorkspace } from '../lib/workspace';
@@ -167,9 +167,33 @@ export function DeleteDialog({
     </Modal>
   );
 }
-export function InfoDialog({ file, onClose }: { file: FileItem; onClose: () => void }) {
+export function InfoDialog({
+  file: initialFile,
+  onClose,
+}: {
+  file: FileItem;
+  onClose: () => void;
+}) {
   const { files } = useWorkspace();
-  const count = files.filter((item) => item.parentId === file.id && !item.trashedAt).length;
+  const [file, setFile] = useState(initialFile);
+  useEffect(() => {
+    let active = true;
+    if (repository.inspectFiles)
+      void repository
+        .inspectFiles([initialFile.id], true)
+        .then((items) => {
+          if (active && items[0]) setFile(items[0]);
+        })
+        .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [initialFile]);
+  const count =
+    file.childCount ??
+    files.filter(
+      (item) => item.parentId === file.id && Boolean(item.trashedAt) === Boolean(file.trashedAt),
+    ).length;
   return (
     <Modal label="File information" onClose={onClose} className="info-modal">
       <ModalHeader

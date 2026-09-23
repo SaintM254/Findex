@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <rect x="0" y="0" width="512" height="512" fill="none"/>
+  <path d="M104.063,198.392l0,-43.607c0,-11.046 8.954,-20 20,-20l47.233,0l0,-0.157c16.69,0.264 18.971,1.567 24.171,6.692c13.71,13.513 18.439,14.782 31.077,14.609l0,0.133l160.582,0c5.304,-0 10.391,2.107 14.142,5.858c3.751,3.751 5.858,8.838 5.858,14.142l0,22.33l-303.064,0Z" fill="url(#_Linear1)"/>
+  <g>
+    <use xlink:href="#_Image2" x="115.621" y="165.273" width="289px" height="27px"/>
+    <path d="M391.503,172.561c2.761,0 5,2.239 5,5c-0,5.136 -0,12.384 -0,12.384l-279.365,0l0,-12.384c0,-2.761 2.239,-5 5,-5c34.345,-0 235.02,-0 269.365,-0Z" fill="#fff"/>
+  </g>
+  <path d="M397.505,183.487c2.652,-0 5.196,1.054 7.071,2.929c1.875,1.875 2.929,4.419 2.929,7.071c-0,29.386 -0,115.874 -0,155.303c0,11.046 -8.954,20 -20,20c-55.054,0 -208.389,0 -263.443,0c-11.046,-0 -20,-8.954 -20,-20c0,-39.429 0,-125.917 0,-155.303c-0,-2.652 1.054,-5.196 2.929,-7.071c1.875,-1.875 4.419,-2.929 7.071,-2.929c46.049,-0 237.394,-0 283.443,-0Z" fill="url(#_Linear3)"/>
+  <text x="136.796" y="303.433" style="font-family:'Poppins';font-weight:700;font-size:68.839px;fill:#fff;">Findex</text>
+  <defs>
+    <linearGradient id="_Linear1" x1="0" y1="0" x2="1" y2="0" gradientUnits="userSpaceOnUse" gradientTransform="matrix(-0.733898,-34.888244,34.888244,-0.733898,261.515968,198.392337)"><stop offset="0" stop-color="#013178"/><stop offset="1" stop-color="#216bd9"/></linearGradient>
+    <image id="_Image2" width="289px" height="27px" xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASEAAAAbCAYAAAAzizlkAAAACXBIWXMAAA7EAAAOxAGVKw4bAAACeElEQVR4nO3dXXPaMBCF4WOHjwQypRf9/z+yaSBAiHuxu/VK2FAM0968z4zGwojbMytbEo2GNek61AeAIV3V7wb6hTpU4nOb2pP6ACKEAFzTpfYl6ZT6Z2E0S/0ImSe/P/frzO+1IoQAXBYBE+Hz6e3o11M17iyEInyWkp69LfxeBFGMBYCQq5scQHtvH349+P0/v4kQimnXXNKLpFdva/+8ENUQgOvyFOwgC59f3to0JqZomqmfhs1klc+rpO+SNpK+yYJoKUIIwHXxzOdTFkLvslyJgic/I+okdRFCrQ9aykJoI+mHX9eySmimPskAYEiES1RCK9kMS+qfDR39+5NUTsfmssRayyqgjawiWsmqIAC4xYvKAPqQtPPrQVYAnVVCC1kQrdQ/DyKAAEzRyjLkKGnr/aX6WVUjqYlOfjC98IExBQOAqVpZnkTLb9qbGCCVQZTXBgHAPfLawwif4gVXDqFG5Upp3oIBeIQ848rZ0mjgRr1XDAAeoc6Vs0po7AcA8CiDucK6HwD/wmhhQwgB+K/GQmj07A8AmGA0U9pq0FfVAOAe9TlC+ZAzSRZCXTU4nwESZ38AwFQHlfvFiiCqd7bG+R872e5XyVZOs24IwC2iqIktGztZtkRxUxxqFoMjgLaS3mShs5ctsyaEANwipl5HWQD9lGVLBFFM0YoQisE5gJ5VnqgIAH8rzhXay2ZWb7KMialZMR07qQ+hxn/4LqogANPFuUL5Mc9W9owoXnx1eatGbFydpxb/tAEAU8Sb9jjQLM6YPvn9rt43FlOvvNWeEAIwVf3XP/XxrkXADP3RIQEE4F6dLqwTuhQyBBCARxpcMf0blWa3qGPz+KkAAAAASUVORK5CYII="/>
+    <linearGradient id="_Linear3" x1="0" y1="0" x2="1" y2="0" gradientUnits="userSpaceOnUse" gradientTransform="matrix(-1.225422,-158.73876,158.73876,-1.225422,256.819825,357.131097)"><stop offset="0" stop-color="#2577f5"/><stop offset="1" stop-color="#2cbafc"/></linearGradient>
+  </defs>
+</svg>

@@ -43,12 +43,16 @@ import { Viewer } from './components/Viewer';
 import { EmptyState, FileIcon, IconButton, Logo } from './components/ui';
 import { repository, FindexNative } from './lib/native-repository';
 import { useWorkspace } from './lib/workspace';
+import { useNativeListing } from './lib/use-native-listing';
+import { indexFiles } from './lib/file-index';
 import { errorMessage } from './lib/utils';
-import type { Category, Clipboard, FileItem, Location } from './lib/types';
+import type { Category, Clipboard, FileItem, Location, FileSort } from './lib/types';
 
 export default function App() {
   const {
-    files,
+    files: workspaceFiles,
+    revision,
+    summary,
     storage,
     preferences,
     permission,
@@ -61,12 +65,16 @@ export default function App() {
     notify,
     clearToast,
   } = useWorkspace();
-  const [location, setLocation] = useState<Location>({ page: 'overview' });
+  const [location, setLocation] = useState<Location>({
+    page: repository.native ? 'all' : 'overview',
+  });
   const [search, setSearch] = useState('');
   const [searchIds, setSearchIds] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [clipboard, setClipboard] = useState<Clipboard | null>(null);
   const [view, setView] = useState<'list' | 'grid'>('list');
+  const [filePage, setFilePage] = useState(0);
+  const [fileSort, setFileSort] = useState<FileSort>('name');
   const [mobileOpen, setMobileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [assistantState, setAssistantState] = useState<{ prompt?: string } | null>(null);
@@ -83,6 +91,34 @@ export default function App() {
   const searchInput = useRef<HTMLInputElement>(null);
   const searchWorker = useRef<Worker | null>(null);
   const searchSequence = useRef(0);
+  const nativePage = useNativeListing(
+    {
+      section: location.page,
+      id: location.id,
+      search,
+      sort: fileSort,
+      page: filePage,
+      pageSize: 80,
+      showHidden: preferences.showHidden,
+    },
+    repository.native && !loading && permission && location.page !== 'overview',
+    revision,
+  );
+  const files = useMemo(
+    () =>
+      repository.native
+        ? [
+            ...new Map(
+              [...workspaceFiles, ...nativePage.ancestors, ...nativePage.files].map((file) => [
+                file.id,
+                file,
+              ]),
+            ).values(),
+          ]
+        : workspaceFiles,
+    [workspaceFiles, nativePage.ancestors, nativePage.files],
+  );
+  const fileIndex = useMemo(() => indexFiles(files), [files]);
   const currentFolder = location.page === 'folder' ? location.id! : storage.rootId;
   const toastElement = useRef<HTMLDivElement>(null);
   const progressElement = useRef<HTMLDivElement>(null);
@@ -104,6 +140,7 @@ export default function App() {
   }, [toast?.id, progress]);
 
   useEffect(() => {
+    if (repository.native) return;
     const worker = new Worker(new URL('./lib/indexer.worker.ts', import.meta.url), {
       type: 'module',
     });
@@ -131,14 +168,14 @@ export default function App() {
 
   const live = useMemo(
     () =>
-      files.filter(
+      fileIndex.live.filter(
         (file) =>
-          !file.trashedAt &&
-          (preferences.showHidden || !file.path.split('/').some((part) => part.startsWith('.'))),
+          preferences.showHidden || !file.path.split('/').some((part) => part.startsWith('.')),
       ),
-    [files, preferences.showHidden],
+    [fileIndex, preferences.showHidden],
   );
   const visible = useMemo(() => {
+    if (repository.native && location.page !== 'overview') return nativePage.files;
     switch (location.page) {
       case 'all':
         return live.filter((file) => file.parentId === storage.rootId);
@@ -149,11 +186,7 @@ export default function App() {
       case 'favorites':
         return live.filter((file) => file.favorite);
       case 'trash':
-        return files.filter(
-          (file) =>
-            file.trashedAt &&
-            !files.some((parent) => parent.id === file.parentId && parent.trashedAt),
-        );
+        return fileIndex.trashRoots;
       case 'category':
         return live.filter(
           (file) => file.kind === 'file' && file.category === (location.id as Category),
@@ -168,9 +201,10 @@ export default function App() {
           .sort((a, b) => b.modifiedAt - a.modifiedAt)
           .slice(0, 5);
     }
-  }, [location, live, files, storage.rootId, searchIds]);
+  }, [location, live, files, fileIndex, storage.rootId, searchIds, nativePage.files]);
   const navigate = useCallback((next: Location) => {
     setLocation(next);
+    setFilePage(0);
     setSelected(new Set());
     setSearch('');
     setContextMenu(null);
@@ -208,7 +242,7 @@ export default function App() {
     },
     [navigate, notify, select],
   );
-  const menu = (file: FileItem, event: MouseEvent<HTMLElement>) => {
+  const menu = useCallback((file: FileItem, event: MouseEvent<HTMLElement>) => {
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
@@ -229,7 +263,7 @@ export default function App() {
         ),
       ),
     });
-  };
+  }, []);
   useEffect(() => {
     if (!contextMenu) return;
     const close = (event: Event) => {
@@ -249,10 +283,10 @@ export default function App() {
   }, [contextMenu]);
   useEffect(() => {
     setSelected((previous) => {
-      const ids = new Set([...previous].filter((id) => files.some((file) => file.id === id)));
+      const ids = new Set([...previous].filter((id) => fileIndex.byId.has(id)));
       return ids.size === previous.size ? previous : ids;
     });
-  }, [files]);
+  }, [fileIndex]);
 
   function putClipboard(action: Clipboard['action'], ids = [...selected]) {
     const available = ids.filter((id) => live.some((file) => file.id === id));
@@ -293,9 +327,16 @@ export default function App() {
     if (!deleteItems) return;
     const permanent = deleteItems.every((file) => file.trashedAt);
     const ids = deleteItems.map((file) => file.id);
+    let undoIds = ids;
     const success = await run(
       permanent ? 'Letting these files go' : 'Moving your files to Trash',
-      (progress) => repository.operate({ action: permanent ? 'delete' : 'trash', ids }, progress),
+      async (progress) => {
+        const result = await repository.operate(
+          { action: permanent ? 'delete' : 'trash', ids },
+          progress,
+        );
+        if (result?.ids.length) undoIds = result.ids;
+      },
     );
     if (success) {
       setDeleteItems(null);
@@ -307,7 +348,7 @@ export default function App() {
           run: () => {
             void run(
               'Bringing your files back',
-              (progress) => repository.operate({ action: 'restore', ids }, progress),
+              (progress) => repository.operate({ action: 'restore', ids: undoIds }, progress),
               'Right back where they belong.',
             );
           },
@@ -337,7 +378,9 @@ export default function App() {
     if (repository.native) void importFiles([]);
     else uploadInput.current?.click();
   };
-  const assistant = (prompt?: string) => setAssistantState({ prompt });
+  const assistant = useCallback((prompt?: string) => setAssistantState({ prompt }), []);
+  const showSettings = useCallback(() => setSettingsOpen(true), []);
+  const closeMobile = useCallback(() => setMobileOpen(false), []);
   const toggleTheme = async () => {
     const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
     try {
@@ -471,16 +514,30 @@ export default function App() {
                 : 'A little space for the things that belong together.';
   const mediaSiblings = useMemo(
     () =>
-      [...live].filter((file) => file.kind === 'file').sort((a, b) => b.modifiedAt - a.modifiedAt),
+      repository.native
+        ? []
+        : [...live]
+            .filter((file) => file.kind === 'file')
+            .sort((a, b) => b.modifiedAt - a.modifiedAt),
     [live],
   );
   const viewerIndex = viewerFile
     ? mediaSiblings.findIndex((file) => file.id === viewerFile.id)
     : -1;
-  const parentFolder =
-    location.page === 'folder' ? files.find((file) => file.id === location.id) : null;
-  const actions = { selected, onSelect: select, onOpen: openFile, onMenu: menu };
-  if (loading)
+  const parentFolder = location.page === 'folder' ? fileIndex.byId.get(location.id || '') : null;
+  const actions = useMemo(
+    () => ({ selected, onSelect: select, onOpen: openFile, onMenu: menu }),
+    [selected, select, openFile, menu],
+  );
+  const changePage = useCallback((page: number) => {
+    setFilePage(page);
+    setSelected(new Set());
+  }, []);
+  const changeSort = useCallback((sort: FileSort) => {
+    setFileSort(sort);
+    setFilePage(0);
+  }, []);
+  if (loading && !repository.native)
     return (
       <div className="boot-screen">
         <Logo />
@@ -510,9 +567,9 @@ export default function App() {
         location={location}
         navigate={navigate}
         assistant={assistant}
-        settings={() => setSettingsOpen(true)}
+        settings={showSettings}
         mobileOpen={mobileOpen}
-        closeMobile={() => setMobileOpen(false)}
+        closeMobile={closeMobile}
       />
       <main
         inert={mobileOpen ? true : undefined}
@@ -575,8 +632,13 @@ export default function App() {
                 value={search}
                 onChange={(event) => {
                   setSearch(event.target.value);
+                  setFilePage(0);
                   setSelected(new Set());
-                  setLocation(event.target.value ? { page: 'search' } : { page: 'overview' });
+                  setLocation(
+                    event.target.value
+                      ? { page: 'search' }
+                      : { page: repository.native ? 'all' : 'overview' },
+                  );
                 }}
                 onKeyDown={(event) => {
                   if (event.key === 'Escape') {
@@ -680,14 +742,16 @@ export default function App() {
                     onClick={() => requestDelete(visible.map((file) => file.id))}
                   >
                     <Trash2 size={17} />
-                    Empty Trash
+                    {repository.native && nativePage.total > visible.length
+                      ? 'Empty this page'
+                      : 'Empty Trash'}
                   </button>
                 ) : (
                   <>
                     <button
                       className="secondary-button new-folder-button"
                       onClick={() => setNameDialog({})}
-                      disabled={!permission}
+                      disabled={loading || !permission}
                     >
                       <Plus size={17} />
                       <span>New folder</span>
@@ -695,7 +759,7 @@ export default function App() {
                     <button
                       className="primary-button upload-button"
                       onClick={startImport}
-                      disabled={!permission}
+                      disabled={loading || !permission}
                     >
                       <Upload size={16} />
                       <span>Add files</span>
@@ -704,7 +768,12 @@ export default function App() {
                 )}
               </div>
             </div>
-            {!permission ? (
+            {loading ? (
+              <div className="listing-loading" role="status">
+                <LoaderCircle className="spin" size={18} />
+                <span>Opening local storage…</span>
+              </div>
+            ) : !permission ? (
               <div className="permission-card surface-card">
                 <span className="permission-icon">
                   <HardDrive size={36} strokeWidth={1.2} />
@@ -740,15 +809,52 @@ export default function App() {
               />
             ) : (
               <div className="browse-content">
-                <FileList
-                  key={`${location.page}-${location.id || ''}`}
-                  files={visible}
-                  allFiles={files}
-                  {...actions}
-                  view={view}
-                  setView={setView}
-                  isTrash={location.page === 'trash'}
-                />
+                {repository.native && nativePage.error ? (
+                  <EmptyState
+                    title="This folder could not be opened."
+                    description={nativePage.error}
+                    action={
+                      <button className="secondary-button" onClick={() => nativePage.reload()}>
+                        Try again
+                      </button>
+                    }
+                  />
+                ) : repository.native && nativePage.loading && !nativePage.files.length ? (
+                  <div className="listing-loading" role="status">
+                    <LoaderCircle className="spin" size={18} />
+                    <span>Reading this folder…</span>
+                  </div>
+                ) : (
+                  <FileList
+                    key={`${location.page}-${location.id || ''}`}
+                    files={visible}
+                    allFiles={files}
+                    {...actions}
+                    view={view}
+                    setView={setView}
+                    isTrash={location.page === 'trash'}
+                    pagination={
+                      repository.native
+                        ? {
+                            page: filePage,
+                            pageSize: 80,
+                            total: nativePage.total,
+                            onPage: changePage,
+                            sort: fileSort,
+                            onSort: changeSort,
+                            loading: nativePage.loading,
+                          }
+                        : undefined
+                    }
+                  />
+                )}
+                {repository.native &&
+                  summary?.indexing &&
+                  !['all', 'folder'].includes(location.page) && (
+                    <p className="index-note" role="status">
+                      The local index is updating in the background. You can keep browsing folders.
+                    </p>
+                  )}
                 {location.page === 'all' && (
                   <div className="browse-tip">
                     <span className="status-dot" />
@@ -795,7 +901,15 @@ export default function App() {
             <X size={16} />
           </IconButton>
           <span className="control-divider" />
-          <IconButton label="Select all" onClick={selectAll} disabled={!!progress}>
+          <IconButton
+            label={
+              repository.native && nativePage.total > visible.length
+                ? 'Select this page'
+                : 'Select all'
+            }
+            onClick={selectAll}
+            disabled={!!progress}
+          >
             <CheckCheck size={21} />
           </IconButton>
           {location.page === 'trash' ? (

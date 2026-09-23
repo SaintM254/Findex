@@ -48,12 +48,12 @@ abstract class ViewerActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= 28) window.attributes = window.attributes.apply {
             layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30) WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
-        root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(25, 35, 30)) }
+        root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(17, 34, 49)) }
         content = FrameLayout(this)
         root.addView(content, FrameLayout.LayoutParams(-1, -1))
-        toolbar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0); setBackgroundColor(0xde1d2a23.toInt()) }
+        toolbar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0); setBackgroundColor(0xde1d252a.toInt()) }
         toolbar.addView(icon("back", "Close viewer") { finish() })
-        titleView = TextView(this).apply { textSize = 14f; setTextColor(Color.rgb(230, 237, 223)); isSingleLine = true; ellipsize = TextUtils.TruncateAt.END; setPadding(dp(11), 0, dp(10), 0) }
+        titleView = TextView(this).apply { textSize = 14f; setTextColor(Color.rgb(224, 239, 252)); isSingleLine = true; ellipsize = TextUtils.TruncateAt.END; setPadding(dp(11), 0, dp(10), 0) }
         toolbar.addView(titleView, LinearLayout.LayoutParams(0, -2, 1f))
         root.addView(toolbar, FrameLayout.LayoutParams(-1, dp(64), Gravity.TOP))
         setContentView(root)
@@ -70,7 +70,7 @@ abstract class ViewerActivity : AppCompatActivity() {
     protected fun icon(glyph: String, label: String, action: () -> Unit): ImageButton = ImageButton(this).apply {
         contentDescription = label; setImageDrawable(Glyph(glyph)); scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
         setPadding(dp(11), dp(11), dp(11), dp(11)); minimumWidth = dp(44); minimumHeight = dp(44)
-        background = GradientDrawable().apply { cornerRadius = dp(22).toFloat(); setColor(0x153f5540) }
+        background = GradientDrawable().apply { cornerRadius = dp(22).toFloat(); setColor(0x153f4c55) }
         layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(2) }
         setOnClickListener { action() }
     }
@@ -83,7 +83,7 @@ abstract class ViewerActivity : AppCompatActivity() {
         content.removeAllViews()
         content.addView(TextView(this).apply {
             text = "$message\n\nUse the open-with button to try another app."
-            textSize = 15f; setLineSpacing(dp(5).toFloat(), 1f); setTextColor(0xffbacbb0.toInt()); gravity = Gravity.CENTER
+            textSize = 15f; setLineSpacing(dp(5).toFloat(), 1f); setTextColor(0xffb0c0cb.toInt()); gravity = Gravity.CENTER
             setPadding(dp(35), dp(90), dp(35), dp(50))
         }, FrameLayout.LayoutParams(-1, -1))
     }
@@ -94,7 +94,7 @@ abstract class ViewerActivity : AppCompatActivity() {
     }
 }
 internal class Glyph(private val kind: String) : Drawable() {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xffdce8d3.toInt(); style = Paint.Style.STROKE; strokeWidth = 1.6f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xffd3dfe8.toInt(); style = Paint.Style.STROKE; strokeWidth = 1.6f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     override fun draw(canvas: Canvas) {
         canvas.save(); canvas.translate(bounds.left.toFloat(), bounds.top.toFloat()); canvas.scale(bounds.width() / 24f, bounds.height() / 24f)
         val path = Path()

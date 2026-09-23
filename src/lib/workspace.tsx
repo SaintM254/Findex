@@ -5,12 +5,13 @@ import {
   useEffect,
   useRef,
   useState,
+  startTransition,
   type ReactNode,
 } from 'react';
 import { repository, FindexNative } from './native-repository';
 import { defaultPreferences } from './browser-repository';
 import { errorMessage } from './utils';
-import type { FileItem, Preferences, Progress, StorageInfo } from './types';
+import type { FileItem, Preferences, Progress, StorageInfo, WorkspaceSummary } from './types';
 
 interface Toast {
   id: number;
@@ -20,6 +21,8 @@ interface Toast {
 }
 interface Workspace {
   files: FileItem[];
+  summary?: WorkspaceSummary;
+  revision: number;
   storage: StorageInfo;
   preferences: Preferences;
   permission: boolean;
@@ -41,12 +44,14 @@ const initialStorage: StorageInfo = {
   total: 0,
   free: 0,
   indexed: 0,
-  isDemo: true,
+  isDemo: !repository.native,
   rootId: 'root',
 };
 const WorkspaceContext = createContext<Workspace | null>(null);
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [files, setFiles] = useState<FileItem[]>([]);
+  const [summary, setSummary] = useState<WorkspaceSummary>();
+  const [revision, setRevision] = useState(0);
   const [storage, setStorage] = useState<StorageInfo>(initialStorage);
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
   const [permission, setPermission] = useState(true);
@@ -66,11 +71,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   );
   const refresh = useCallback(async () => {
     const snapshot = await repository.load();
-    setFiles(snapshot.files);
-    setStorage(snapshot.storage);
-    setPreferences(snapshot.preferences);
-    setPermission(snapshot.permission);
-    setError(null);
+    startTransition(() => {
+      setFiles(snapshot.files);
+      setStorage(snapshot.storage);
+      setPreferences(snapshot.preferences);
+      setPermission(snapshot.permission);
+      setSummary(snapshot.summary);
+      setRevision((value) => value + 1);
+      setError(null);
+    });
   }, []);
   useEffect(() => {
     refresh()
@@ -86,7 +95,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       document.documentElement.dataset.theme = dark ? 'dark' : 'light';
       document
         .querySelector('meta[name="theme-color"]')
-        ?.setAttribute('content', dark ? '#171e19' : '#f4f6f1');
+        ?.setAttribute('content', dark ? '#111e2a' : '#f4f9fe');
     };
     apply();
     media.addEventListener('change', apply);
@@ -94,8 +103,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [preferences.theme]);
   useEffect(() => {
     if (!repository.native) return;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const updates = FindexNative.addListener('indexUpdated', () => {
-      refresh().catch(() => undefined);
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        void refresh().catch(() => undefined);
+      }, 250);
     });
     const insets = FindexNative.addListener('insets', (data) => {
       document.documentElement.style.setProperty('--native-safe-top', `${data.top || 0}px`);
@@ -106,6 +119,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     };
     document.addEventListener('visibilitychange', resume);
     return () => {
+      clearTimeout(refreshTimer);
       updates.then((handle) => handle.remove());
       insets.then((handle) => handle.remove());
       document.removeEventListener('visibilitychange', resume);
@@ -143,6 +157,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     <WorkspaceContext.Provider
       value={{
         files,
+        summary,
+        revision,
         storage,
         preferences,
         permission,

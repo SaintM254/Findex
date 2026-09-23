@@ -24,6 +24,8 @@ export interface FileItem {
   width?: number;
   height?: number;
   duration?: number;
+  isVolume?: boolean;
+  childCount?: number;
 }
 export interface StorageInfo {
   total: number;
@@ -91,6 +93,7 @@ export interface PlannedMove {
   destination: string;
 }
 export interface Analysis {
+  candidateCount?: number;
   totalBytes: number;
   totalFiles: number;
   largeFiles: FileItem[];
@@ -99,19 +102,55 @@ export interface Analysis {
   emptyFolders: FileItem[];
   growth: { name: string; bytes: number; previousBytes: number | null }[];
 }
+export type FileSort = 'name' | 'modified' | 'size';
+export interface FileQuery {
+  section: Page | 'plan';
+  id?: string;
+  search?: string;
+  filter?: SearchFilter;
+  page?: number;
+  pageSize?: number;
+  sort?: FileSort;
+  showHidden?: boolean;
+  filesOnly?: boolean;
+}
+export interface FilePage {
+  files: FileItem[];
+  ancestors: FileItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+export interface WorkspaceSummary {
+  categories: { category: Category; count: number; bytes: number }[];
+  folders?: { id: string; count: number; bytes: number }[];
+  trashCount: number;
+  indexing: boolean;
+}
+export interface OperationResult {
+  ids: string[];
+}
 export interface WorkspaceSnapshot {
   files: FileItem[];
   storage: StorageInfo;
   permission: boolean;
   preferences: Preferences;
+  summary?: WorkspaceSummary;
 }
 export interface Repository {
   native: boolean;
   load(): Promise<WorkspaceSnapshot>;
+  listFiles?(query: FileQuery): Promise<FilePage>;
+  inspectFiles?(ids: string[], details?: boolean): Promise<FileItem[]>;
+  planningContext?(): Promise<FileItem[]>;
+  ensureFolderPath?(path: string, parentId: string): Promise<string>;
   createFolder(name: string, parentId: string): Promise<string>;
   rename(id: string, name: string): Promise<void>;
   setFavorite(id: string, favorite: boolean): Promise<void>;
-  operate(request: OperationRequest, onProgress?: (progress: Progress) => void): Promise<void>;
+  operate(
+    request: OperationRequest,
+    onProgress?: (progress: Progress) => void,
+  ): Promise<OperationResult | void>;
   importFiles(
     files: File[],
     parentId: string,

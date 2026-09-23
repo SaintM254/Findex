@@ -31,6 +31,7 @@ class KeyVault(context: Context) {
         val encoded = "1:" + Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" + Base64.encodeToString(encrypted, Base64.NO_WRAP)
         check(preferences.edit().putString(provider, encoded).commit()) { "The API key could not be saved." }
     }
+    fun has(provider: String): Boolean = !preferences.getString(provider, null).isNullOrBlank()
     @Synchronized fun read(provider: String): String? {
         val value = preferences.getString(provider, null) ?: return null
         return try {

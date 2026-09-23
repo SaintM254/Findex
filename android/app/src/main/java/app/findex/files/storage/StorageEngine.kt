@@ -11,6 +11,8 @@ import android.os.Build
 import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.os.StatFs
+import android.os.SystemClock
+import android.util.Base64
 import android.provider.OpenableColumns
 import android.system.Os
 import android.webkit.MimeTypeMap
@@ -19,6 +21,8 @@ import app.findex.files.data.FileRecord
 import app.findex.files.data.FindexDatabase
 import app.findex.files.data.SnapshotRecord
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -35,6 +39,7 @@ import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.Executors
 import kotlin.coroutines.coroutineContext
 
 /** A single serialized writer protects metadata and filesystem changes from competing workers. */
@@ -53,13 +58,69 @@ class StorageEngine private constructor(private val context: Context) {
     @Volatile var policy = PathPolicy(roots)
         private set
     private val mutation = Mutex()
+    private val scanning = Mutex()
+    private val indexingDispatcher = Executors.newSingleThreadExecutor { task ->
+        Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); task.run() }, "findex-index").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
+    @Volatile var indexing = false
+        private set
+    val catalog by lazy { FileCatalog(this) }
+    fun locator(path: String): String = "fs:" + Base64.encodeToString(path.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    private fun fileForLocator(id: String): File {
+        require(id.length <= 16_384) { "Invalid file identifier." }
+        val path = String(Base64.decode(id.removePrefix("fs:"), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING), Charsets.UTF_8)
+        return policy.requireAllowed(File(path), false)
+    }
+    fun uiId(item: FileRecord): String = if (item.trashedAt != null) item.id else locator(item.path)
+    fun toUi(item: FileRecord, detail: Boolean = false): JSONObject {
+        val value = toJson(item, detail)
+        if (item.trashedAt == null) {
+            val file = File(item.path)
+            val parent = file.parentFile
+            value.put("id", locator(item.path)).put("parentId", if (policy.isRoot(file) || parent == null || parent.canonicalFile == roots.first()) "root" else locator(parent.path))
+            if (item.kind == "folder" && policy.isRoot(file)) value.put("isVolume", true)
+        }
+        return value
+    }
+    /** Called only under the writer mutex. Browsing does not need an indexed record. */
+    private fun managedRecord(id: String): FileRecord {
+        if (!id.startsWith("fs:")) return record(id)
+        fun ensure(file: File): FileRecord {
+            dao.byPath(file.path)?.let { old -> return metadata(file, old.parentId, old).also { dao.put(it) } }
+            check(file.exists()) { "This item is no longer available." }
+            val parent = file.parentFile
+            val parentId = if (policy.isRoot(file) || parent == null || parent.canonicalFile == roots.first()) "root" else ensure(parent).id
+            return metadata(file, parentId).also { dao.put(it) }
+        }
+        return ensure(fileForLocator(id))
+    }
+    private fun managedParent(id: String): String = if (id == "root") "root" else managedRecord(id).id
+    fun previewEntries(entries: List<Pair<File, BasicFileAttributes>>, parentId: String): List<FileRecord> {
+        if (entries.isEmpty()) return emptyList()
+        val known = dao.byPaths(entries.map { it.first.path }).associateBy { it.path }
+        return entries.map { (file, attributes) -> metadata(file, parentId, known[file.path], attributes).also {
+            if (policy.isRoot(file)) it.name = "SD card · ${file.name}"
+        } }
+    }
     private val jobs = File(context.filesDir, "operations").apply { mkdirs() }
     data class Progress(val completed: Int, val total: Int, val label: String, val bytes: Long = 0)
 
     fun hasPermission(): Boolean = if (Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager()
         else ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
     private fun requirePermission() { check(hasPermission()) { "Allow all-files access in Android Settings first." } }
-    fun record(id: String): FileRecord = dao.byId(id) ?: throw IOException("This file is no longer in the index. Refresh and try again.")
+    fun record(id: String): FileRecord {
+        if (id.startsWith("fs:")) {
+            requirePermission()
+            val file = fileForLocator(id)
+            check(file.exists()) { "This file is no longer available." }
+            return metadata(file, "root", dao.byPath(file.path)).also { it.id = id }
+        }
+        val stored = dao.byId(id) ?: throw IOException("This file is no longer in the index. Refresh and try again.")
+        if (stored.trashedAt != null) return stored
+        val file = policy.requireAllowed(File(stored.path), false)
+        check(file.exists()) { "This file is no longer available." }
+        return metadata(file, stored.parentId, stored)
+    }
     fun all(): List<FileRecord> = dao.all()
     fun resolve(id: String, internal: Boolean = false): File {
         requirePermission()
@@ -73,84 +134,139 @@ class StorageEngine private constructor(private val context: Context) {
         return parent
     }
 
-    suspend fun scan(progress: suspend (Progress) -> Unit = {}) = withContext(Dispatchers.IO) {
-        mutation.withLock { scanUnlocked(progress) }
+    suspend fun scan(progress: suspend (Progress) -> Unit = {}) = withContext(indexingDispatcher) {
+        scanning.withLock {
+            indexing = true
+            try { scanUnlocked(progress) } finally { indexing = false; catalog.invalidate() }
+        }
     }
     private suspend fun scanUnlocked(progress: suspend (Progress) -> Unit = {}, saveBaseline: Boolean = true) {
         requirePermission()
         roots = discoverRoots(); policy = PathPolicy(roots)
-        // With the mutation lock held, no active writer can own these staging directories.
-        roots.forEach { root -> File(root, ".findex-staging").listFiles()?.forEach { abandoned ->
-            if (abandoned.isDirectory && runCatching { UUID.fromString(abandoned.name) }.isSuccess && File(abandoned, ".findex-owned").isFile) {
-                deleteTree(abandoned)
-            }
-        } }
-        val before = dao.all()
-        val existing = before.associateBy { it.path }
-        if (saveBaseline && before.isNotEmpty()) {
-            before.filter { it.kind == "folder" && it.parentId == "root" && it.trashedAt == null }.forEach { folder ->
-                val total = before.filter { it.kind == "file" && it.trashedAt == null && it.path.startsWith(folder.path + "/") }.sumOf { it.size }
-                dao.snapshot(SnapshotRecord().apply { folderId = folder.id; bytes = total; takenAt = System.currentTimeMillis() })
+        if (saveBaseline) {
+            dao.navigation().filter { it.kind == "folder" && it.parentId == "root" }.forEach { folder ->
+                val sum = dao.scalar(androidx.sqlite.db.SimpleSQLiteQuery("SELECT COALESCE(SUM(size),0) FROM files WHERE kind = 'file' AND trashedAt IS NULL AND instr(path, ?) = 1", arrayOf(folder.path + "/")))
+                dao.snapshot(SnapshotRecord().apply { folderId = folder.id; bytes = sum; takenAt = System.currentTimeMillis() })
             }
         }
-        val seen = mutableSetOf<String>()
-        val inaccessible = mutableListOf<String>()
-        val stack = ArrayDeque<Pair<File, String>>()
-        val pending = ArrayList<FileRecord>(128)
+        val queue = ArrayDeque<Pair<File, String>>()
+        queue.add(roots.first() to "root")
+        roots.drop(1).forEach { volume ->
+            val item = mutation.withLock { managedRecord(locator(volume.path)) }
+            queue.add(volume to item.id)
+        }
         var count = 0
-        roots.forEachIndexed { index, root ->
-            if (index == 0) {
-                val children = root.listFiles()
-                if (children == null) inaccessible.add(root.path) else children.forEach { stack.add(it to "root") }
-            } else stack.add(root to "root")
-        }
-        while (stack.isNotEmpty()) {
+        var reportedAt = 0L
+        while (queue.isNotEmpty()) {
             coroutineContext.ensureActive()
-            val (raw, parentId) = stack.removeLast()
-            val file = try { policy.requireAllowed(raw, false) } catch (_: Exception) { continue }
-            if (!file.exists()) continue
-            val previous = existing[file.path]
-            val item = metadata(file, parentId, previous)
-            if (policy.isRoot(file)) item.name = "SD card · ${file.name}"
-            seen.add(item.id); pending.add(item); count++
-            if (file.isDirectory) {
-                val children = file.listFiles()
-                if (children == null) inaccessible.add(file.path) else children.forEach { stack.add(it to item.id) }
+            val (parent, parentId) = queue.removeFirst()
+            val allowed = runCatching { policy.requireAllowed(parent, false) }.getOrNull() ?: continue
+            val listed = allowed.listFiles() ?: continue // Unreadable is never treated as empty.
+            val seen = HashSet<String>(listed.size)
+            for (chunk in listed.asList().chunked(96)) {
+                val entries = chunk.mapNotNull { file ->
+                    if (file.name in setOf(".findex-trash", ".findex-staging") && policy.isRoot(parent)) return@mapNotNull null
+                    if (parent.name == "Android" && file.name in setOf("data", "obb")) return@mapNotNull null
+                    runCatching {
+                        val attributes = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+                        if (attributes.isSymbolicLink || (!attributes.isDirectory && !attributes.isRegularFile)) null else file to attributes
+                    }.getOrNull()
+                }
+                // Only the small metadata commit is serialized. No PDF parsing, media
+                // probing, hashes, or full-volume scan holds the writer lock anymore.
+                val records = mutation.withLock {
+                    val currentParent = if (parentId == "root") null else dao.byId(parentId)
+                    if (parentId != "root" && (currentParent == null || currentParent.path != parent.path || currentParent.trashedAt != null)) emptyList()
+                    else previewEntries(entries, parentId).filter { File(it.path).exists() }.also { dao.putAll(it) }
+                }
+                for (item in records) {
+                    seen.add(item.path); count++
+                    if (item.kind == "folder") queue.add(File(item.path) to item.id)
+                }
+                val now = SystemClock.elapsedRealtime()
+                if (now - reportedAt > 1_000) { progress(Progress(count, 0, "Indexing $count items in the background")); reportedAt = now }
+                delay(2) // Leave I/O and CPU time for foreground directory listings.
             }
-            if (pending.size >= 128) {
-                dao.putAll(pending.toList()); pending.clear()
-                progress(Progress(count, 0, "Indexing $count items"))
+            val missing = dao.children(parentId).filter { it.path !in seen && !File(it.path).exists() }
+            for (chunk in missing.chunked(96)) {
+                mutation.withLock {
+                    database.runInTransaction {
+                        for (item in chunk) {
+                            if (item.kind == "file") dao.deleteUnchanged(item.id, item.path)
+                            else if (dao.byId(item.id)?.path == item.path && !File(item.path).exists()) dao.subtree(item.path).forEach { dao.deleteUnchanged(it.id, it.path) }
+                        }
+                    }
+                }
+                delay(2)
             }
         }
-        if (pending.isNotEmpty()) dao.putAll(pending)
         requirePermission()
-        database.runInTransaction {
-            before.filter { it.trashedAt == null && it.id !in seen && inaccessible.none { path -> it.path == path || it.path.startsWith("$path/") } }
-                .filter { !File(it.path).exists() }.forEach { dao.delete(it.id) }
-        }
-        recoverTrash()
+        mutation.withLock { recoverTrash() }
         progress(Progress(count, count, "Your index is up to date"))
     }
-    private fun metadata(file: File, parentId: String, previous: FileRecord? = null): FileRecord {
-        val size = if (file.isFile) file.length() else 0L
-        val modified = file.lastModified()
+    private fun metadata(file: File, parentId: String, previous: FileRecord? = null, knownAttributes: BasicFileAttributes? = null): FileRecord {
+        val attributes = knownAttributes ?: Files.readAttributes(file.toPath(), BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+        check(!attributes.isSymbolicLink) { "Symbolic links are not followed." }
+        val size = if (attributes.isRegularFile) attributes.size() else 0L
+        val modified = attributes.lastModifiedTime().toMillis()
         val unchanged = previous != null && previous.size == size && previous.modifiedAt == modified
-        val item = FileRecord().apply {
+        return FileRecord().apply {
             id = previous?.id ?: UUID.randomUUID().toString()
             name = file.name; path = file.path; this.parentId = parentId
-            kind = if (file.isDirectory) "folder" else "file"
+            kind = if (attributes.isDirectory) "folder" else "file"
             extension = if (kind == "file") file.extension.lowercase() else ""
             mime = if (kind == "folder") "inode/directory" else MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: when (extension) { "mkv" -> "video/x-matroska"; "md" -> "text/markdown"; else -> "application/octet-stream" }
             category = if (kind == "folder") "other" else category(extension, mime)
             this.size = size; modifiedAt = modified
-            createdAt = previous?.createdAt ?: runCatching { Files.readAttributes(file.toPath(), BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS).creationTime().toMillis().takeIf { it > 0 } ?: modified }.getOrDefault(modified)
+            createdAt = previous?.createdAt ?: attributes.creationTime().toMillis().takeIf { it > 0 } ?: modified
             favorite = previous?.favorite ?: false
             pinned = previous?.pinned ?: (kind == "folder" && parentId == "root" && name.lowercase() in setOf("download", "downloads", "documents", "pictures", "dcim"))
-            color = when (name.lowercase()) { "download", "downloads" -> "blue"; "documents" -> "sand"; "pictures", "dcim" -> "lavender"; else -> previous?.color ?: "sage" }
+            color = previous?.color ?: "blue"
             if (unchanged) { fingerprint = previous?.fingerprint; summary = previous?.summary; width = previous?.width; height = previous?.height; duration = previous?.duration }
         }
-        if (!unchanged && item.kind == "file") enrich(item, file)
-        return item
+    }
+    suspend fun details(id: String): FileRecord = withContext(Dispatchers.IO) {
+        val item = record(id)
+        if (item.kind == "file" && item.trashedAt == null) enrich(item, resolve(id))
+        item
+    }
+    /** Optional rich metadata runs only in the idle/charging worker, never while listing. */
+    suspend fun enrichIdleBatch(): Int = withContext(indexingDispatcher) {
+        var completed = 0
+        for (item in dao.awaitingDetails()) {
+            coroutineContext.ensureActive()
+            val file = runCatching { policy.requireAllowed(File(item.path), false) }.getOrNull() ?: continue
+            if (!file.exists()) continue
+            enrich(item, file)
+            if (item.summary == null) item.summary = ""
+            mutation.withLock {
+                val current = dao.byId(item.id)
+                if (current != null && current.path == item.path && current.size == item.size && current.modifiedAt == item.modifiedAt && file.lastModified() == item.modifiedAt) {
+                    current.summary = item.summary; current.width = item.width; current.height = item.height; current.duration = item.duration
+                    dao.put(current)
+                }
+            }
+            completed++; delay(10)
+        }
+        completed
+    }
+    suspend fun ensureFolderPath(path: String, parentId: String): String = withContext(Dispatchers.IO) {
+        mutation.withLock {
+            var parent = destination(parentId)
+            var id = managedParent(parentId)
+            val segments = path.split('/')
+            require(segments.isNotEmpty() && segments.none { it.isBlank() }) { "Use a relative folder path." }
+            for (segment in segments) {
+                val name = PathPolicy.validName(segment)
+                val target = policy.requireAllowed(File(parent, name), false)
+                if (!target.exists()) Files.createDirectory(target.toPath())
+                check(target.isDirectory) { "$name is a file, not a folder." }
+                val child = metadata(target, id, dao.byPath(target.path)); dao.put(child)
+                parent = target; id = child.id
+            }
+            catalog.invalidate()
+            id
+        }
     }
     private fun enrich(item: FileRecord, file: File) {
         runCatching {
@@ -195,22 +311,22 @@ class StorageEngine private constructor(private val context: Context) {
             val target = policy.requireAllowed(File(parent, PathPolicy.validName(name)), false)
             check(!target.exists()) { "An item with this name already exists." }
             Files.createDirectory(target.toPath())
-            metadata(target, parentId).also { dao.put(it); refreshParents(parent) }.id
+            metadata(target, managedParent(parentId)).also { dao.put(it); refreshParents(parent); catalog.invalidate() }.id
         }
     }
     suspend fun rename(id: String, name: String) = withContext(Dispatchers.IO) {
         mutation.withLock {
-            val item = record(id); check(item.trashedAt == null) { "Restore this item before renaming it." }
+            val item = managedRecord(id); check(item.trashedAt == null) { "Restore this item before renaming it." }
             val source = resolve(id); check(!policy.isRoot(source)) { "Storage volumes cannot be renamed." }
             val target = policy.requireAllowed(File(source.parentFile, PathPolicy.validName(name)), false)
             if (target.path == source.path) return@withLock
             check(!target.exists()) { "An item with this name already exists." }
             Files.move(source.toPath(), target.toPath()) // No REPLACE_EXISTING: never silently overwrite.
             relocate(item, source, target, item.parentId, null)
-            refreshParents(source.parentFile, target.parentFile)
+            refreshParents(source.parentFile, target.parentFile); catalog.invalidate()
         }
     }
-    fun favorite(id: String, favorite: Boolean) { requirePermission(); dao.favorite(id, favorite) }
+    suspend fun favorite(id: String, favorite: Boolean) = withContext(Dispatchers.IO) { mutation.withLock { requirePermission(); dao.favorite(managedRecord(id).id, favorite); catalog.invalidate() } }
     private fun refreshParents(vararg parents: File?) {
         parents.filterNotNull().distinctBy { it.path }.forEach { parent ->
             if (parent.exists()) dao.byPath(parent.path)?.let { item -> item.modifiedAt = parent.lastModified(); dao.put(item) }
@@ -246,7 +362,13 @@ class StorageEngine private constructor(private val context: Context) {
         require(action in setOf("copy", "move", "trash", "restore", "delete")) { "Unsupported operation." }
         require(ids.isNotEmpty()) { "Select at least one item." }
         val id = UUID.randomUUID().toString()
-        val value = JSONObject().put("id", id).put("action", action).put("ids", JSONArray(ids.distinct())).put("destination", destination ?: "root").put("completed", JSONArray())
+        val expected = JSONObject()
+        for (sourceId in ids.distinct()) {
+            val item = record(sourceId)
+            val file = resolve(sourceId, item.trashedAt != null)
+            expected.put(sourceId, JSONObject().put("path", file.path).put("modifiedAt", file.lastModified()).put("size", if (item.kind == "file") file.length() else 0).put("fingerprint", item.fingerprint))
+        }
+        val value = JSONObject().put("id", id).put("action", action).put("ids", JSONArray(ids.distinct())).put("destination", destination ?: "root").put("completed", JSONArray()).put("expected", expected)
         saveJob(id, value)
         return id
     }
@@ -272,14 +394,28 @@ class StorageEngine private constructor(private val context: Context) {
             requirePermission()
             val job = JSONObject(jobFile(jobId).readText())
             val action = job.getString("action")
+            if (!job.optBoolean("canonicalIds", false)) {
+                val canonical = ArrayList<String>()
+                val expected = JSONObject()
+                for (requested in job.getJSONArray("ids").strings()) {
+                    val item = managedRecord(requested)
+                    canonical.add(item.id)
+                    job.optJSONObject("expected")?.optJSONObject(requested)?.let { expected.put(item.id, it) }
+                }
+                job.put("ids", JSONArray(canonical)).put("expected", expected).put("canonicalIds", true)
+                if (job.optString("destination", "root") != "root") job.put("destination", managedParent(job.getString("destination")))
+                saveJob(jobId, job)
+            }
             val done = job.getJSONArray("completed").strings().toMutableSet()
             File(jobs, "$jobId.done").takeIf { it.isFile }?.useLines { lines -> lines.forEach { if (runCatching { UUID.fromString(it) }.isSuccess) done.add(it) } }
-            val all = dao.all().associateBy { it.id }; val selected = job.getJSONArray("ids").strings().toSet()
+            val all = HashMap<String, FileRecord>()
+            fun lookup(id: String): FileRecord? = all[id] ?: dao.byId(id)?.also { all[id] = it }
+            val selected = job.getJSONArray("ids").strings().toSet()
             val ids = selected.filter { id ->
-                var parent = all[id]?.parentId; val visited = mutableSetOf<String>(); var included = true
+                var parent = lookup(id)?.parentId; val visited = mutableSetOf<String>(); var included = true
                 while (parent != null && visited.add(parent)) {
                     if (parent in selected) { included = false; break }
-                    parent = all[parent]?.parentId
+                    parent = lookup(parent)?.parentId
                 }
                 included
             }
@@ -299,11 +435,15 @@ class StorageEngine private constructor(private val context: Context) {
                 val source = if (pending != null) policy.requireAllowed(File(pending.getString("source")), true) else resolve(id, item.trashedAt != null)
                 check(!policy.isRoot(source)) { "Storage volumes cannot be moved or removed." }
                 if (pending == null && source.exists()) {
+                    job.optJSONObject("expected")?.optJSONObject(id)?.let { expected ->
+                        check(source.path == expected.getString("path") && source.lastModified() == expected.getLong("modifiedAt") && (item.kind == "folder" || source.length() == expected.getLong("size"))) { "This item changed after the action was queued. Review it again before continuing." }
+                    }
                     check(source.lastModified() == item.modifiedAt && (item.kind == "folder" || source.length() == item.size)) {
                         "This item changed since the index was built. Refresh and review the action again."
                     }
-                    if (action == "trash" && item.kind == "file" && item.fingerprint != null) {
-                        check(hashBytes(source).joinToString("") { "%02x".format(it) } == item.fingerprint) { "This file no longer matches the reviewed fingerprint. Refresh and review it again." }
+                    val expectedHash = job.optJSONObject("expected")?.optJSONObject(id)?.optString("fingerprint")?.takeIf { it.isNotBlank() && it != "null" } ?: item.fingerprint
+                    if (action == "trash" && item.kind == "file" && expectedHash != null) {
+                        check(hashBytes(source).joinToString("") { "%02x".format(it) } == expectedHash) { "This file no longer matches the reviewed fingerprint. Refresh and review it again." }
                     }
                 }
                 if (action == "delete") {
@@ -367,8 +507,13 @@ class StorageEngine private constructor(private val context: Context) {
                 checkpoint(jobId, id, done)
                 progress(Progress(done.size, ids.size, "${done.size} of ${ids.size} items complete"))
             }
-            jobFile(jobId).delete(); File(jobs, "$jobId.done").delete(); pendingFile(jobId).delete()
+            File(jobs, "$jobId.result").writeText(JSONArray(done.toList()).toString())
+            jobFile(jobId).delete(); File(jobs, "$jobId.done").delete(); pendingFile(jobId).delete(); catalog.invalidate()
         }
+    }
+    fun takeJobResult(jobId: String): List<String> {
+        val file = File(jobs, "$jobId.result")
+        return if (file.exists()) JSONArray(file.readText()).strings().also { file.delete() } else emptyList()
     }
     private suspend fun verifiedCopy(source: File, target: File, progress: suspend (Progress) -> Unit, completed: Int, total: Int) {
         val stagingRoot = File(policy.rootFor(target), ".findex-staging").apply { mkdirs() }
@@ -485,17 +630,18 @@ class StorageEngine private constructor(private val context: Context) {
                         output.fd.sync()
                     } }
                     check(!target.exists()) { "The destination changed. No files were overwritten." }
-                    Files.move(payload.toPath(), target.toPath()); dao.put(metadata(target, parentId)); refreshParents(parent)
+                    Files.move(payload.toPath(), target.toPath()); dao.put(metadata(target, managedParent(parentId))); refreshParents(parent); catalog.invalidate()
                 } finally { staging.deleteRecursively() }
                 progress(Progress(index + 1, uris.size, "Files imported"))
             }
         }
     }
     suspend fun analyze(progress: suspend (Progress) -> Unit = {}): JSONObject = withContext(Dispatchers.IO) {
-        mutation.withLock {
+        scanning.withLock {
             requirePermission()
-            scanUnlocked(progress, saveBaseline = false)
-            val files = dao.live()
+            indexing = true
+            try { scanUnlocked(progress, saveBaseline = false) } finally { indexing = false }
+            val files = dao.analysisFiles()
             val candidates = files.filter { it.kind == "file" && it.size > 0 }.groupBy { it.size }.values.filter { it.size > 1 }.flatten()
             for ((index, item) in candidates.withIndex()) {
                 coroutineContext.ensureActive()
@@ -503,7 +649,7 @@ class StorageEngine private constructor(private val context: Context) {
                     val source = policy.requireAllowed(File(item.path), false)
                     if (!source.isFile || source.length() != item.size || source.lastModified() != item.modifiedAt) continue
                     val hash = hashBytes(source).joinToString("") { "%02x".format(it) }
-                    if (source.length() == item.size && source.lastModified() == item.modifiedAt) { item.fingerprint = hash; dao.put(item) }
+                    if (source.length() == item.size && source.lastModified() == item.modifiedAt) { item.fingerprint = hash; mutation.withLock { val current = dao.byId(item.id); if (current != null && current.path == item.path && current.modifiedAt == item.modifiedAt && current.size == item.size) { current.fingerprint = hash; dao.put(current) } } }
                 }
                 progress(Progress(index + 1, candidates.size, "Verifying duplicate candidates"))
             }
@@ -520,15 +666,15 @@ class StorageEngine private constructor(private val context: Context) {
             }
             JSONObject().put("totalBytes", docs.sumOf { it.size }).put("totalFiles", docs.size)
                 .put("largeFiles", JSONArray(docs.sortedByDescending { it.size }.take(8).map { toJson(it) }))
-                .put("duplicates", JSONArray(duplicateGroups.map { group -> JSONArray(group.map { toJson(it) }) }))
-                .put("cleanup", JSONArray(cleanup.map { toJson(it) })).put("emptyFolders", JSONArray(empty.map { toJson(it) })).put("growth", JSONArray(growth))
+                .put("duplicates", JSONArray(duplicateGroups.take(100).map { group -> JSONArray(group.take(100).map { toJson(it, false) }) }))
+                .put("candidateCount", cleanup.size + empty.size).put("cleanup", JSONArray(cleanup.take(500).map { toJson(it, false) })).put("emptyFolders", JSONArray(empty.take((500 - cleanup.size).coerceAtLeast(0)).map { toJson(it, false) })).put("growth", JSONArray(growth))
         }
     }
     fun storage(): JSONObject {
         var total = 0L; var free = 0L
         roots.forEach { root -> runCatching { StatFs(root.path).also { total += it.totalBytes; free += it.availableBytes } } }
         return JSONObject().put("total", total).put("free", free).put("used", total - free)
-            .put("indexed", dao.live().filter { it.kind == "file" }.sumOf { it.size }).put("isDemo", false).put("rootId", "root")
+            .put("indexed", dao.indexedBytes()).put("isDemo", false).put("rootId", "root")
     }
     companion object {
         @Volatile private var instance: StorageEngine? = null
@@ -541,11 +687,11 @@ class StorageEngine private constructor(private val context: Context) {
             extension in setOf("zip", "rar", "7z", "tar", "gz", "bz2") -> "archives"
             else -> "other"
         }
-        fun toJson(item: FileRecord): JSONObject = JSONObject().put("id", item.id).put("name", item.name).put("path", item.path)
+        fun toJson(item: FileRecord, detail: Boolean = true): JSONObject = JSONObject().put("id", item.id).put("name", item.name).put("path", item.path)
             .put("parentId", item.parentId).put("kind", item.kind).put("category", item.category).put("extension", item.extension).put("mime", item.mime)
             .put("size", item.size).put("createdAt", item.createdAt).put("modifiedAt", item.modifiedAt).put("favorite", item.favorite).put("pinned", item.pinned).put("color", item.color)
             .put("trashedAt", item.trashedAt ?: JSONObject.NULL).put("originalParentId", item.originalParentId ?: JSONObject.NULL)
-            .put("summary", item.summary ?: JSONObject.NULL).put("fingerprint", item.fingerprint ?: JSONObject.NULL)
+            .put("summary", if (detail) item.summary ?: JSONObject.NULL else JSONObject.NULL).put("fingerprint", if (detail) item.fingerprint ?: JSONObject.NULL else JSONObject.NULL)
             .put("width", item.width ?: JSONObject.NULL).put("height", item.height ?: JSONObject.NULL).put("duration", item.duration ?: JSONObject.NULL)
     }
 }

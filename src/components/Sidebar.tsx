@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
   Clock3,
@@ -12,6 +12,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { Location } from '../lib/types';
+import { indexFiles } from '../lib/file-index';
 import { useWorkspace } from '../lib/workspace';
 import { IconButton, Logo, WaveMark } from './ui';
 
@@ -23,7 +24,7 @@ interface Props {
   mobileOpen: boolean;
   closeMobile: () => void;
 }
-export function Sidebar({
+export const Sidebar = memo(function Sidebar({
   location,
   navigate,
   assistant,
@@ -31,7 +32,7 @@ export function Sidebar({
   mobileOpen,
   closeMobile,
 }: Props) {
-  const { files, storage } = useWorkspace();
+  const { files, storage, summary } = useWorkspace();
   const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 760px)').matches);
   const aside = useRef<HTMLElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -54,10 +55,8 @@ export function Sidebar({
       returnFocus.current = null;
     }
   }, [compact, mobileOpen]);
-  const trashCount = files.filter(
-    (file) =>
-      file.trashedAt && !files.some((parent) => parent.id === file.parentId && parent.trashedAt),
-  ).length;
+  const index = indexFiles(files);
+  const trashCount = summary?.trashCount ?? index.trashRoots.length;
   const nav = [
     { page: 'overview', name: 'Overview', icon: LayoutGrid },
     { page: 'all', name: 'All files', icon: FolderClosed },
@@ -124,8 +123,7 @@ export function Sidebar({
           </button>
           <div className="nav-section-label collections-label">COLLECTIONS</div>
           <nav aria-label="Collections" className="collection-nav">
-            {files
-              .filter((file) => file.kind === 'folder' && file.pinned && !file.trashedAt)
+            {[...index.pinned]
               .sort(
                 (a, b) =>
                   ['sage', 'sand', 'lavender', 'blue'].indexOf(a.color || 'sage') -
@@ -142,7 +140,7 @@ export function Sidebar({
                   <span>{file.name}</span>
                 </button>
               ))}
-            {!files.some((file) => file.pinned) && (
+            {!index.pinned.length && (
               <span className="sidebar-note">Favorite a folder to keep it close.</span>
             )}
           </nav>
@@ -192,4 +190,4 @@ export function Sidebar({
       </aside>
     </>
   );
-}
+});

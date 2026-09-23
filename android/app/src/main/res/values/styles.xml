@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme.Base" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="colorPrimary">#2D523D</item><item name="colorAccent">#91AC79</item>
+        <item name="colorPrimary">#2d4352</item><item name="colorAccent">#7997ac</item>
         <item name="android:fontFamily">sans</item><item name="android:windowLightStatusBar">@bool/findex_light_bars</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
@@ -17,7 +17,7 @@
     </style>
     <style name="AppTheme.ViewerBase" parent="AppTheme">
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowBackground">#19231E</item>
+        <item name="android:windowBackground">#191f23</item>
     </style>
     <style name="AppTheme.Viewer" parent="AppTheme.ViewerBase"/>
 </resources>

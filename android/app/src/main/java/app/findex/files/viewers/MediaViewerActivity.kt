@@ -91,7 +91,7 @@ class MediaViewerActivity : ViewerActivity() {
     }
     private fun showPlayer(id: String, mime: String, audio: Boolean) {
         val view = PlayerView(this).apply {
-            setBackgroundColor(0xff19231e.toInt()); setShutterBackgroundColor(0xff19231e.toInt())
+            setBackgroundColor(0xff191f23.toInt()); setShutterBackgroundColor(0xff191f23.toInt())
             useController = true; controllerShowTimeoutMs = if (audio) 0 else 3500
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
             setShowNextButton(false); setShowPreviousButton(false)
@@ -119,11 +119,11 @@ private class AudioArtwork : Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     override fun draw(canvas: Canvas) {
         val cx = bounds.exactCenterX(); val cy = bounds.exactCenterY(); val radius = min(bounds.width(), bounds.height()) * .28f
-        paint.color = 0xff26392a.toInt(); canvas.drawCircle(cx, cy, radius, paint)
-        paint.style = Paint.Style.STROKE; paint.strokeWidth = 1f; paint.color = 0xff3f5540.toInt()
+        paint.color = 0xff263139.toInt(); canvas.drawCircle(cx, cy, radius, paint)
+        paint.style = Paint.Style.STROKE; paint.strokeWidth = 1f; paint.color = 0xff3f4c55.toInt()
         for (index in 1..24) canvas.drawCircle(cx, cy, radius * (.2f + index * .032f), paint)
-        paint.style = Paint.Style.FILL; paint.color = 0xff99b087.toInt(); canvas.drawCircle(cx, cy, radius * .31f, paint)
-        paint.color = 0xffe4edda.toInt(); paint.strokeWidth = radius * .018f; paint.strokeCap = Paint.Cap.ROUND
+        paint.style = Paint.Style.FILL; paint.color = 0xff879fb0.toInt(); canvas.drawCircle(cx, cy, radius * .31f, paint)
+        paint.color = 0xffdae5ed.toInt(); paint.strokeWidth = radius * .018f; paint.strokeCap = Paint.Cap.ROUND
         for (index in -2..2) { val height = radius * (.13f - kotlin.math.abs(index) * .03f); val x = cx + index * radius * .055f; canvas.drawLine(x, cy - height, x, cy + height, paint) }
     }
     override fun getIntrinsicWidth() = 720

@@ -26,8 +26,8 @@ class AgentClient(private val context: Context) {
         val key = store.vault.read(provider) ?: error("Add an API key in Settings first.")
         val engine = StorageEngine.get(context)
         check(engine.hasPermission()) { "Storage permission is required." }
-        val metadata = engine.all().filter { it.trashedAt == null }.take(500).map { item ->
-            JSONObject().put("id", item.id).put("name", item.name).put("parentId", item.parentId).put("kind", item.kind)
+        val metadata = engine.catalog.planningContext().map { item ->
+            JSONObject().put("id", engine.uiId(item)).put("name", item.name).put("parentId", engine.toUi(item).optString("parentId", "root")).put("kind", item.kind)
                 .put("category", item.category).put("size", item.size).put("modifiedAt", item.modifiedAt)
         }
         val payload = JSONObject().put("now", Instant.now().toString()).put("timezone", timezone.take(80)).put("query", query).put("files", JSONArray(metadata)).toString()

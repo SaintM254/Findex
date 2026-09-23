@@ -10,7 +10,6 @@ concurrency:
   cancel-in-progress: true
 jobs:
   workspace:
-    if: "!contains(github.event.head_commit.message, '[sign tested v1.0]')"
     name: Web build and tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -33,7 +32,6 @@ jobs:
           name: browser-test-results
           path: test-results/
   android:
-    if: "!contains(github.event.head_commit.message, '[sign tested v1.0]')"
     name: Android APKs, unit tests, and lint
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -73,7 +71,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          ./gradlew :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest :app:lintDebug :app:lintRelease --stacktrace --console=plain > "$RUNNER_TEMP/android-build.log" 2>&1
+          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:testDebugUnitTest :app:lintDebug :app:lintRelease --stacktrace --console=plain > "$RUNNER_TEMP/android-build.log" 2>&1
           result=$?
           cat "$RUNNER_TEMP/android-build.log"
           if [[ "$result" != 0 ]]; then
@@ -96,10 +94,11 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 4 android/app/build/outputs/apk/release/app-release-unsigned.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: findex-apks
+          name: findex-1.1-unsigned-and-debug
           path: |
             android/app/build/outputs/apk/debug/app-debug.apk
             android/app/build/outputs/apk/release/app-release-unsigned.apk
+            android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
@@ -112,84 +111,44 @@ jobs:
           path: |
             android/app/build/reports/
             android/app/schemas/
-  publish:
-    name: Sign APK and prepare v1.0 release
-    needs: [workspace, android]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/arena/01a0caa2-findex' && contains(github.event.head_commit.message, '[publish v1.0]')
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: actions/download-artifact@v5
-        with:
-          name: findex-apks
-          path: downloaded-apks
-      - name: Sign and verify APK, encrypt signing backup, create draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: scripts/prepare-release.sh
 
-  sign_verified:
-    name: Sign the already verified v1.0 APK
-    if: github.event_name == 'push' && github.ref == 'refs/heads/arena/01a0caa2-findex' && contains(github.event.head_commit.message, '[sign tested v1.0]')
+  device:
+    name: Android browsing and navigation smoke tests
+    needs: android
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      actions: read
-      contents: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      VERIFIED_RUN: '35814417633'
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - name: Verify prior checks and unchanged application source
-        shell: bash
-        run: |
-          source_sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN" --jq '.head_sha')
-          source_branch=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN" --jq '.head_branch')
-          test "$source_branch" = 'arena/01a0caa2-findex'
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN/jobs" > "$RUNNER_TEMP/verified-jobs.json"
-          python3 - "$RUNNER_TEMP/verified-jobs.json" <<'PYTHON'
-          import json, sys
-          jobs = {job['name']: job['conclusion'] for job in json.load(open(sys.argv[1]))['jobs']}
-          required = ['Web build and tests', 'Android APKs, unit tests, and lint']
-          assert all(jobs.get(name) == 'success' for name in required), jobs
-          PYTHON
-          git diff --exit-code "$source_sha" "$GITHUB_SHA" -- android src public package.json package-lock.json capacitor.config.ts vite.config.ts 'tsconfig*.json'
-          echo "APK source and native/web verification matched $source_sha."
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
       - uses: actions/download-artifact@v5
         with:
-          github-token: ${{ github.token }}
-          run-id: '35814417633'
-          name: findex-apks
-          path: downloaded-apks
-      - name: Sign verified APK and report actionable diagnostics
-        shell: bash
+          name: findex-1.1-unsigned-and-debug
+          path: apk
+      - name: Enable emulator acceleration
         run: |
-          set +e
-          scripts/prepare-release.sh > "$RUNNER_TEMP/release-step.log" 2>&1
-          result=$?
-          cat "$RUNNER_TEMP/release-step.log"
-          if [[ "$result" != 0 ]]; then
-            python3 - "$RUNNER_TEMP/release-step.log" <<'PYTHON'
-          import pathlib, sys
-          lines = [line for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if not line.startswith('::notice')]
-          text = '\n'.join(lines[-45:])[-12000:]
-          for offset in range(0, len(text), 3000):
-              chunk = text[offset:offset + 3000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-              print(f'::error title=Release preparation failed (part {offset // 3000 + 1})::{chunk}')
-          PYTHON
-          fi
-          exit "$result"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Test real Android directory browsing with a large index
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          disable-animations: true
+          script: |
+            adb install -r apk/debug/app-debug.apk
+            adb install -r apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w -r app.findex.files.test/androidx.test.runner.AndroidJUnitRunner > android-device-tests.txt
+            cat android-device-tests.txt
+            python3 scripts/check-instrumentation.py android-device-tests.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-device-results
+          path: android-device-tests.txt

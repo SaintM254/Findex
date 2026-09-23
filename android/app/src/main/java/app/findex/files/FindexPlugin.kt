@@ -7,6 +7,9 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
+import android.os.FileObserver
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.activity.result.ActivityResult
 import androidx.appcompat.app.AppCompatDelegate
@@ -57,6 +60,11 @@ class FindexPlugin : Plugin() {
     private val preferences get() = PreferencesStore(context)
     @Volatile private var currentOperation: UUID? = null
     private var lastResumeScan = 0L
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val listingSequence = java.util.concurrent.atomic.AtomicLong()
+    private var watchedPath: String? = null
+    private var directoryObserver: FileObserver? = null
+    private var pendingDirectoryEvent: Runnable? = null
     private val finishedIndexWork = mutableSetOf<UUID>()
 
     override fun load() {
@@ -71,7 +79,10 @@ class FindexPlugin : Plugin() {
             }
             ViewCompat.requestApplyInsets(bridge.webView)
             WorkManager.getInstance(context).getWorkInfosByTagLiveData(IndexWorker.TAG).observe(activity) { work ->
-                if (work.any { it.state == WorkInfo.State.SUCCEEDED && finishedIndexWork.add(it.id) }) notifyListeners("indexUpdated", JSObject())
+                val completed = work.filter { it.state == WorkInfo.State.SUCCEEDED }.map { it.id }
+                val changed = completed.any { it !in finishedIndexWork }
+                finishedIndexWork.addAll(completed) // Consume every completed id, not only the first.
+                if (changed) notifyListeners("indexUpdated", JSObject())
             }
             WorkManager.getInstance(context).getWorkInfosByTagLiveData(OperationWorker.TAG).observe(activity) { work ->
                 val active = work.firstOrNull { !it.state.isFinished }
@@ -89,13 +100,66 @@ class FindexPlugin : Plugin() {
     }
     private fun required(call: PluginCall, key: String): String = call.getString(key)?.takeIf { it.isNotBlank() } ?: throw IllegalArgumentException("Missing $key.")
 
+    private fun thumbnail(value: JSONObject): JSONObject {
+        if (value.optString("category") == "images" && value.isNull("trashedAt")) value.put("previewUrl", SharedFileProvider.uri(context, value.getString("id"), true).toString())
+        return value
+    }
     @PluginMethod fun load(call: PluginCall) = io(call) {
         val options = preferences.read()
         withContext(Dispatchers.Main) { applyTheme(options.getString("theme")) }
         val allowed = engine.hasPermission()
-        if (allowed && engine.database.files().count() == 0) engine.scan { emitProgress(it) }
-        JSONObject().put("files", JSONArray(if (allowed) engine.all().map { item -> StorageEngine.toJson(item).also { if (item.category == "images" && item.trashedAt == null) it.put("previewUrl", SharedFileProvider.uri(context, item.id, true).toString()) } } else emptyList<JSONObject>()))
+        // No recursive scan and no whole-database JSON transfer on startup/resume.
+        JSONObject().put("files", JSONArray(if (allowed) engine.catalog.navigation().map { thumbnail(engine.toUi(it)) } else emptyList<JSONObject>()))
             .put("storage", engine.storage()).put("permission", allowed).put("preferences", options)
+            .put("summary", if (allowed) engine.catalog.dashboard() else JSONObject())
+    }
+    @PluginMethod fun listFiles(call: PluginCall) {
+        val sequence = listingSequence.incrementAndGet()
+        io(call) {
+        val query = call.data
+        val result = engine.catalog.browse(query)
+        val items = result.getJSONArray("files")
+        for (index in 0 until items.length()) thumbnail(items.getJSONObject(index))
+        if (query.optString("section") in setOf("all", "folder")) {
+            val path = engine.resolve(if (query.optString("section") == "all") "root" else query.getString("id")).path
+            withContext(Dispatchers.Main) { if (listingSequence.get() == sequence) watchDirectory(path) }
+        }
+        result
+        }
+    }
+    @PluginMethod fun inspectFiles(call: PluginCall) = io(call) {
+        val ids = call.getArray("ids")?.strings() ?: emptyList()
+        require(ids.size <= 500) { "Inspect files in bounded batches." }
+        val detail = call.getBoolean("details", false) ?: false
+        JSONObject().put("files", JSONArray(ids.map { id ->
+            val item = if (detail) engine.details(id) else engine.record(id)
+            thumbnail(engine.toUi(item, detail).put("id", id)).also { value ->
+                if (detail && item.kind == "folder" && item.trashedAt == null) value.put("childCount", engine.resolve(id).list()?.size ?: JSONObject.NULL)
+            }
+        }))
+    }
+    @PluginMethod fun planningContext(call: PluginCall) = io(call) {
+        JSONObject().put("files", JSONArray(engine.catalog.planningContext().map { engine.toUi(it) }))
+    }
+    @PluginMethod fun ensureFolderPath(call: PluginCall) = io(call) {
+        JSONObject().put("id", engine.ensureFolderPath(required(call, "path"), required(call, "parentId")))
+    }
+    @Suppress("DEPRECATION")
+    private fun watchDirectory(path: String) {
+        if (watchedPath == path) return
+        directoryObserver?.stopWatching()
+        pendingDirectoryEvent?.let { mainHandler.removeCallbacks(it) }
+        watchedPath = path
+        directoryObserver = object : FileObserver(path, FileObserver.CREATE or FileObserver.DELETE or FileObserver.MOVED_FROM or FileObserver.MOVED_TO or FileObserver.CLOSE_WRITE or FileObserver.ATTRIB or FileObserver.DELETE_SELF or FileObserver.MOVE_SELF) {
+            override fun onEvent(event: Int, name: String?) {
+                if (name?.startsWith(".findex-") == true) return
+                engine.catalog.invalidate(path)
+                pendingDirectoryEvent?.let { mainHandler.removeCallbacks(it) }
+                val task = Runnable { notifyListeners("directoryChanged", JSObject().put("path", path)) }
+                pendingDirectoryEvent = task
+                mainHandler.postDelayed(task, 100)
+            }
+        }.also { it.startWatching() }
     }
     @PluginMethod fun requestPermission(call: PluginCall) {
         if (engine.hasPermission()) { call.resolve(); return }
@@ -130,7 +194,7 @@ class FindexPlugin : Plugin() {
         }.first { it.state.isFinished }
         if (currentOperation == work.id) currentOperation = null
         check(info.state == WorkInfo.State.SUCCEEDED) { if (info.state == WorkInfo.State.CANCELLED) "Operation cancelled. Completed items are kept; incomplete copies are cleaned up." else info.outputData.getString("error") ?: "The operation could not be completed." }
-        null
+        JSONObject().put("ids", JSONArray(engine.takeJobResult(jobId)))
     }
     @PluginMethod fun exitApp(call: PluginCall) { call.resolve(); activity.runOnUiThread { activity.finish() } }
     @PluginMethod fun cancelOperation(call: PluginCall) { currentOperation?.let { WorkManager.getInstance(context).cancelWorkById(it) }; call.resolve() }
@@ -185,10 +249,10 @@ class FindexPlugin : Plugin() {
         WindowCompat.getInsetsController(activity.window, bridge.webView).apply { isAppearanceLightStatusBars = !dark; isAppearanceLightNavigationBars = !dark }
     }
     override fun handleOnResume() {
-        if (System.currentTimeMillis() - lastResumeScan > 30_000) {
+        if (System.currentTimeMillis() - lastResumeScan > 15 * 60_000) {
             lastResumeScan = System.currentTimeMillis()
             scope.launch { if (engine.hasPermission()) IndexWorker.schedule(context) }
         }
     }
-    override fun handleOnDestroy() { scope.cancel() }
+    override fun handleOnDestroy() { directoryObserver?.stopWatching(); pendingDirectoryEvent?.let { mainHandler.removeCallbacks(it) }; scope.cancel() }
 }

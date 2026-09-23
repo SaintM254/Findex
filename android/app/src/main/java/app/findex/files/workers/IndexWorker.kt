@@ -20,6 +20,7 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         if (!engine.hasPermission()) return Result.success()
         return try {
             engine.scan { setProgress(workDataOf("completed" to it.completed, "total" to it.total, "label" to it.label)) }
+            EnrichmentWorker.schedule(applicationContext)
             Result.success()
         } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { if (runAttemptCount < 2) Result.retry() else Result.failure() }
     }
@@ -27,10 +28,10 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         const val TAG = "findex-index"
         fun schedule(context: Context, immediate: Boolean = true) {
             val manager = WorkManager.getInstance(context)
-            val periodic = PeriodicWorkRequestBuilder<IndexWorker>(15, TimeUnit.MINUTES)
+            val periodic = PeriodicWorkRequestBuilder<IndexWorker>(60, TimeUnit.MINUTES)
                 .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build()).addTag(TAG).build()
             manager.enqueueUniquePeriodicWork("findex-periodic-index", ExistingPeriodicWorkPolicy.KEEP, periodic)
-            if (immediate) manager.enqueueUniqueWork("findex-index-now", ExistingWorkPolicy.KEEP, OneTimeWorkRequestBuilder<IndexWorker>().addTag(TAG).build())
+            if (immediate) manager.enqueueUniqueWork("findex-index-now", ExistingWorkPolicy.KEEP, OneTimeWorkRequestBuilder<IndexWorker>().setInitialDelay(3, TimeUnit.SECONDS).setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build()).addTag(TAG).build())
         }
     }
 }

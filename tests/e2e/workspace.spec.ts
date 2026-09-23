@@ -218,3 +218,58 @@ test('overview, dark mode, and assistant have no automated WCAG AA violations', 
   await openAssistant(page);
   await scan();
 });
+
+test('navigation taps stay responsive with twelve thousand indexed records', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('findex-workspace-v1');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction('files', 'readwrite');
+    const store = transaction.objectStore('files');
+    for (let index = 0; index < 12_000; index++)
+      store.put({
+        id: `performance-${index}`,
+        name: `Notes ${index}.txt`,
+        path: `/Work projects/Notes ${index}.txt`,
+        parentId: 'projects',
+        kind: 'file',
+        category: 'documents',
+        extension: 'txt',
+        mime: 'text/plain',
+        size: 100,
+        createdAt: 1000,
+        modifiedAt: 1000,
+        favorite: false,
+      });
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+    database.close();
+  });
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'A home for everything.' })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const measurements: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    const elapsed = await page.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          const started = performance.now();
+          (document.querySelector('[aria-label="Open navigation"]') as HTMLButtonElement).click();
+          const poll = () =>
+            document.querySelector('.sidebar.is-open')
+              ? resolve(performance.now() - started)
+              : requestAnimationFrame(poll);
+          requestAnimationFrame(poll);
+        }),
+    );
+    measurements.push(elapsed);
+    await page.locator('.sidebar-close').click();
+  }
+  expect(Math.max(...measurements)).toBeLessThan(200);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

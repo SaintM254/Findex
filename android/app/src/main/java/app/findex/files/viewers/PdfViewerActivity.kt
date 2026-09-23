@@ -124,6 +124,7 @@ class PdfViewerActivity : ViewerActivity() {
         val status = TextView(this@PdfViewerActivity).apply { gravity = Gravity.CENTER; setTextColor(0xff81929e.toInt()); textSize = 12f; text = "Preparing page…" }
         var job: Job? = null
         var key = ""
+        var pendingHeight = 0
         init { box.addView(image, FrameLayout.LayoutParams(-1, -1)); box.addView(status, FrameLayout.LayoutParams(-1, -1)); box.elevation = dp(2).toFloat() }
     }
     private inner class PagesAdapter : RecyclerView.Adapter<PageHolder>() {
@@ -136,10 +137,10 @@ class PdfViewerActivity : ViewerActivity() {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PageHolder = PageHolder(FrameLayout(this@PdfViewerActivity))
         override fun onBindViewHolder(holder: PageHolder, position: Int) {
             holder.job?.cancel(); holder.image.setImageDrawable(null); holder.status.visibility = View.VISIBLE; holder.status.text = "Preparing page…"
-            // Mutate the existing LayoutParams: a fresh RecyclerView.LayoutParams
-            // carries no ViewHolder and crashes RecyclerView during layout.
-            holder.box.layoutParams.height = min(20_000f, width * (ratios[position] ?: initialRatio)).roundToInt().coerceAtLeast(1)
-            holder.box.requestLayout()
+            // RecyclerView assigns the item's LayoutParams (with its ViewHolder)
+            // at attach time; before that the height is kept pending, and an
+            // existing params object is mutated rather than replaced.
+            applyHeight(holder, min(20_000f, width * (ratios[position] ?: initialRatio)).roundToInt().coerceAtLeast(1))
             holder.image.contentDescription = "PDF page ${position + 1}"
             val displayWidth = width; val key = "$position:$displayWidth"; holder.key = key
             if (!rendering.isActive) return
@@ -162,8 +163,7 @@ class PdfViewerActivity : ViewerActivity() {
                     if (isActive) withContext(Dispatchers.Main) {
                         if (holder.key == key) {
                             ratios[position] = ratio
-                            holder.box.layoutParams.height = min(20_000f, displayWidth * ratio).roundToInt().coerceAtLeast(1)
-                            holder.box.requestLayout()
+                            applyHeight(holder, min(20_000f, displayWidth * ratio).roundToInt().coerceAtLeast(1))
                             holder.image.setImageBitmap(image); holder.status.visibility = View.GONE
                         }
                     }
@@ -181,6 +181,14 @@ class PdfViewerActivity : ViewerActivity() {
                 page.render(image, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 image to ratio
             }
+        override fun onViewAttachedToWindow(holder: PageHolder) {
+            super.onViewAttachedToWindow(holder)
+            if (holder.pendingHeight > 0) applyHeight(holder, holder.pendingHeight)
+        }
+        private fun applyHeight(holder: PageHolder, height: Int) {
+            holder.pendingHeight = height
+            holder.box.layoutParams?.let { params -> params.height = height; holder.box.requestLayout() }
+        }
         override fun onViewRecycled(holder: PageHolder) { holder.job?.cancel(); holder.key = ""; holder.image.setImageDrawable(null); super.onViewRecycled(holder) }
     }
 }

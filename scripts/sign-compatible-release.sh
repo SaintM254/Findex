@@ -11,7 +11,8 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 expected=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["expectedCertificateSha256"])' "$root/signing/release-policy.json")
 public_cert=$(mktemp)
 verification=$(mktemp)
-trap 'rm -f "$public_cert" "$verification"' EXIT
+badging=$(mktemp)
+trap 'rm -f "$public_cert" "$verification" "$badging"' EXIT
 keytool -exportcert -keystore "$ANDROID_KEYSTORE_PATH" -alias "${ANDROID_KEY_ALIAS:-findex}" \
   -storepass:file "$ANDROID_KEYSTORE_PASSWORD_FILE" -file "$public_cert" >/dev/null
 actual=$(openssl x509 -inform DER -in "$public_cert" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr '[:upper:]' '[:lower:]')
@@ -19,6 +20,8 @@ if [[ "$actual" != "$expected" ]]; then
   echo 'Signing blocked: this certificate does not match Findex 1.0.' >&2
   exit 1
 fi
+"$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$input" > "$badging"
+python3 "$root/scripts/verify-release-metadata.py" "$root/signing/release-policy.json" "$badging"
 mkdir -p "$(dirname "$output")"
 "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign --ks "$ANDROID_KEYSTORE_PATH" \
   --ks-key-alias "${ANDROID_KEY_ALIAS:-findex}" --ks-pass "file:$ANDROID_KEYSTORE_PASSWORD_FILE" \

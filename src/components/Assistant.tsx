@@ -538,7 +538,8 @@ export function Assistant({ initialPrompt, onClose, openSettings, onOpenFile }: 
                                     ? plan.destination
                                     : file.kind === 'folder'
                                       ? 'Empty folder'
-                                      : analysis?.duplicates.some((group) =>
+                                      : file.cleanupReason === 'duplicate' ||
+                                          analysis?.duplicates.some((group) =>
                                             group.slice(1).some((item) => item.id === file.id),
                                           )
                                         ? 'Verified duplicate'

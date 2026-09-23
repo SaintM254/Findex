@@ -2,6 +2,12 @@
 
 **A home for everything.** An edge-to-edge Android file manager with a considered glass interface, native background file operations, and an assistant that works with real indexed files—not invented answers.
 
+## Version 1.1 status
+
+The 1.1 source includes direct, paged native folder browsing, a linear-time cached UI index, low-priority metadata scanning, responsive navigation, and the supplied blue icon/theme. See [`docs/PERFORMANCE_1_1.md`](docs/PERFORMANCE_1_1.md).
+
+**Compatible release signing is blocked:** the private v1.0 signing material is unavailable in the restored workspace. `signing/release-policy.json` pins the original certificate, and no replacement signing identity is generated. The annotated screenshot for the red-circled removals is also still needed. See [`docs/releases/v1.1.md`](docs/releases/v1.1.md) for exact status.
+
 ## Run the interactive preview
 
 ```sh

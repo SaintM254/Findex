@@ -205,6 +205,8 @@ export default function App() {
   const navigate = useCallback((next: Location) => {
     setLocation(next);
     setFilePage(0);
+    if (repository.native && (next.page === 'recent' || next.page === 'trash'))
+      setFileSort('modified');
     setSelected(new Set());
     setSearch('');
     setContextMenu(null);

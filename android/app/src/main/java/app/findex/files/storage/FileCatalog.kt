@@ -115,7 +115,7 @@ class FileCatalog(private val engine: StorageEngine) {
             if (name.isNotEmpty()) { clauses.add("LOWER(f.name) LIKE ? ESCAPE '\\'"); args.add(like(name)) }
         }
         val where = clauses.joinToString(" AND ")
-        val order = if (section == "trash") "f.trashedAt DESC" else if (section == "recent") "f.modifiedAt DESC" else when (sort) {
+        val order = if (section == "trash" && sort == "modified") "f.trashedAt DESC" else when (sort) {
             "modified" -> "CASE WHEN f.kind = 'folder' THEN 0 ELSE 1 END, f.modifiedAt DESC"
             "size" -> "CASE WHEN f.kind = 'folder' THEN 0 ELSE 1 END, f.size DESC"
             else -> "CASE WHEN f.kind = 'folder' THEN 0 ELSE 1 END, f.name COLLATE NOCASE"

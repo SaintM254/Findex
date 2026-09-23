@@ -138,7 +138,7 @@ export const FileList = memo(function FileList({
                 value={sort}
                 onChange={(event) => setSort(event.target.value as FileSort)}
               >
-                <option value="modified">Last modified</option>
+                <option value="modified">{isTrash ? 'Removed date' : 'Last modified'}</option>
                 <option value="name">Name</option>
                 <option value="size">File size</option>
               </select>

@@ -14,7 +14,7 @@ Index records contain path, extension, category, size, creation/modification tim
 
 In the browser, metadata snapshots go to a dedicated Web Worker for indexed matching and analysis. Search is debounced. File lists render in batches of 80 rather than creating an unbounded DOM. This is incremental rendering, not a benchmark claim of constant-time traversal for arbitrarily large storage.
 
-Native full scans are periodic (at least 15 minutes, subject to Android scheduling), requested on eligible resumes, and available explicitly in Settings. Changes by another application may not be reflected until the next scan. This is not an always-live recursive filesystem observer.
+Native lightweight metadata scans are periodic (hourly, subject to Android scheduling), requested on eligible resumes, and available explicitly in Settings. Changes by another application may not be reflected until the next scan. The currently visible directory additionally has a non-recursive FileObserver. No whole-volume recursive observer or media parsing blocks normal navigation.
 
 ## File mutations
 
@@ -64,6 +64,6 @@ The custom content provider is non-exported and exposes read-only access only th
 - Android's all-files permission is subject to Google Play's file-manager policy and declaration review.
 - Protected private app data and system files are unavailable without privileges this app does not request.
 - WorkManager scheduling, foreground-service limits, battery restrictions, volume removal, and codec support vary by Android/OEM.
-- The entire loaded metadata snapshot crosses the native bridge. Large-index memory/latency profiling and native query pagination are important before shipping to very large libraries.
+- Native startup and directory views now use bounded metadata snapshots/pages, not the whole index. Browsing reads the current directory directly; it does not wait for the recursive metadata index. Very large single-directory enumeration and device-specific I/O still warrant profiling.
 - This environment could not build or instrument Android; native compilation, lint, physical-device gestures, and lifecycle behavior are not represented as verified.
 - A developer must provide release signing, actual application identity, privacy policy, store declarations, and successful release checks. No secrets or signing credentials are committed.

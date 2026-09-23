@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.os.Bundle
+import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
@@ -21,6 +22,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import app.findex.files.data.FileRecord
 import app.findex.files.storage.SharedFileProvider
 import app.findex.files.storage.StorageEngine
 import kotlinx.coroutines.CancellationException

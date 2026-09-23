@@ -65,7 +65,7 @@ class AgentClient(private val context: Context) {
             check(response.isSuccessful) {
                 when (response.code) {
                     401, 403 -> "Your API key was not accepted. Check it in Settings."
-                    404 -> "Your provider could not find the model "$model". Update the model name in Settings (the current defaults are listed there). No files were changed."
+                    404 -> "Your provider could not find the model '$model'. Update the model name in Settings (the current defaults are listed there). No files were changed."
                     else -> "Your provider returned error ${response.code}. No files were changed."
                 }
             }

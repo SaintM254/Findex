@@ -4885,3 +4885,27 @@ body:has(.modal-backdrop):has(.toast) .operation-progress {
     -webkit-backdrop-filter: none;
   }
 }
+
+/* Screenshot cleanup: the main canvas has search/navigation only. File tools
+   live inside navigation, without labels underneath their action icons. */
+.sidebar-brand {
+  margin-bottom: 20px;
+}
+.sidebar-file-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  margin-bottom: 20px;
+  flex-shrink: 0;
+}
+.sidebar-file-tools .icon-button {
+  width: 44px;
+  height: 44px;
+  border-radius: 20px;
+  color: var(--accent-strong);
+  background: var(--surface);
+}
+.sidebar-file-tools .icon-button:hover:enabled {
+  background: var(--accent-soft);
+}

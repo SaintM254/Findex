@@ -1,12 +1,39 @@
 import { test, expect, type Page } from '@playwright/test';
 
-async function navigate(page: Page, name: string) {
+async function openNavigation(page: Page) {
   const menu = page.getByRole('button', { name: 'Open navigation', exact: true });
-  if (await menu.isVisible()) await menu.click();
+  if (
+    (await menu.isVisible()) &&
+    !(await page.locator('.sidebar').evaluate((element) => element.classList.contains('is-open')))
+  )
+    await menu.click();
+}
+async function navigate(page: Page, name: string) {
+  await openNavigation(page);
   await page
     .getByRole('navigation', { name: 'Workspace navigation' })
     .getByRole('button', { name, exact: true })
     .click();
+}
+async function openSettings(page: Page) {
+  await openNavigation(page);
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click();
+}
+async function setDarkTheme(page: Page) {
+  await openSettings(page);
+  await page.getByRole('button', { name: 'Dark', exact: true }).click();
+  await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toHaveCount(0);
+}
+async function createFolder(page: Page, name: string) {
+  await openNavigation(page);
+  await page
+    .getByRole('toolbar', { name: 'File tools', exact: true })
+    .getByRole('button', { name: 'New folder', exact: true })
+    .click();
+  await page.getByLabel('Folder name', { exact: true }).fill(name);
+  await page.getByRole('button', { name: 'Create folder', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'New folder', exact: true })).toHaveCount(0);
 }
 async function openAssistant(page: Page) {
   await page.getByRole('button', { name: 'Meet your file assistant' }).click();
@@ -29,10 +56,7 @@ test('responsive canvas, hidden selection bar, and accessible navigation', async
   );
 });
 test('real folder creation, copy, collision-safe paste, Trash, and restore', async ({ page }) => {
-  await page.getByRole('button', { name: 'New folder', exact: true }).click();
-  await page.getByLabel('Folder name', { exact: true }).fill('Autumn collection');
-  await page.getByRole('button', { name: 'Create folder', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'New folder', exact: true })).toHaveCount(0);
+  await createFolder(page, 'Autumn collection');
   await page.getByRole('button', { name: 'Select Brand guidelines.pdf', exact: true }).click();
   const tools = page.getByRole('toolbar', { name: 'Selected file actions' });
   await expect(tools).toBeVisible();
@@ -134,13 +158,13 @@ test('byte-verified cleanup is reversible and dark mode persists', async ({ page
   await page.getByRole('button', { name: /^Move \d+ items to Trash$/ }).click();
   await expect(page.getByText('All taken care of.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Close assistant', exact: true }).click();
-  await page.getByRole('button', { name: 'Switch to dark mode', exact: true }).click();
+  await setDarkTheme(page);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 });
 test('settings disclose provider scope and do not persist a browser API key', async ({ page }) => {
-  await page.getByRole('button', { name: 'Open preferences', exact: true }).click();
+  await openSettings(page);
   await page.getByRole('tab', { name: 'Intelligence', exact: true }).click();
   await expect(
     page.getByText('Kept in memory for this tab only. Never saved to browser storage.', {
@@ -150,7 +174,7 @@ test('settings disclose provider scope and do not persist a browser API key', as
   await page.getByLabel('Your API key', { exact: true }).fill('fictional-local-test-key');
   await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
   await page.reload();
-  await page.getByRole('button', { name: 'Open preferences', exact: true }).click();
+  await openSettings(page);
   await page.getByRole('tab', { name: 'Intelligence', exact: true }).click();
   await expect(page.getByText('Key saved', { exact: true })).toHaveCount(0);
   await expect(page.getByLabel('Your API key', { exact: true })).toBeEmpty();
@@ -212,7 +236,7 @@ test('overview, dark mode, and assistant have no automated WCAG AA violations', 
     expect(results.violations).toEqual([]);
   };
   await scan();
-  await page.getByRole('button', { name: 'Switch to dark mode', exact: true }).click();
+  await setDarkTheme(page);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await scan();
   await openAssistant(page);
@@ -275,4 +299,59 @@ test('navigation taps stay responsive with twelve thousand indexed records', asy
   );
   expect(Math.max(...measurements)).toBeLessThan(200);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('circled controls are absent from the main canvas and available through navigation', async ({
+  page,
+}) => {
+  const header = page.locator('.topbar');
+  const heading = page.locator('.page-heading');
+  await expect(header.locator('.theme-toggle, .topbar-avatar')).toHaveCount(0);
+  await expect(header.getByRole('button', { name: 'Open preferences', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(heading.getByRole('button', { name: 'New folder', exact: true })).toHaveCount(0);
+  await expect(heading.getByRole('button', { name: 'Add files', exact: true })).toHaveCount(0);
+  await expect(page.locator('.page-actions')).toHaveCount(0);
+  await openNavigation(page);
+  const tools = page.getByRole('toolbar', { name: 'File tools', exact: true });
+  await expect(tools.getByRole('button', { name: 'New folder', exact: true })).toBeVisible();
+  await expect(tools.getByRole('button', { name: 'Add files', exact: true })).toBeVisible();
+  expect((await tools.getByRole('button').allTextContents()).every((text) => !text.trim())).toBe(
+    true,
+  );
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Light', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Dark', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'System', exact: true })).toBeVisible();
+});
+
+test('navigation file tools act on the open folder, not the storage root', async ({ page }) => {
+  await page.getByRole('button', { name: 'Open Personal', exact: true }).click();
+  await createFolder(page, 'Menu-created folder');
+  await expect(
+    page.getByRole('button', { name: 'Open Menu-created folder', exact: true }),
+  ).toBeVisible();
+  await openNavigation(page);
+  const choosing = page.waitForEvent('filechooser');
+  await page
+    .getByRole('toolbar', { name: 'File tools', exact: true })
+    .getByRole('button', { name: 'Add files', exact: true })
+    .click();
+  const chooser = await choosing;
+  await chooser.setFiles({
+    name: 'Menu import.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Imported through navigation.'),
+  });
+  await expect(
+    page.getByRole('button', { name: 'Open Menu import.txt', exact: true }),
+  ).toBeVisible();
+  await navigate(page, 'All files');
+  await expect(
+    page.getByRole('button', { name: 'Open Menu-created folder', exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Open Menu import.txt', exact: true })).toHaveCount(
+    0,
+  );
 });

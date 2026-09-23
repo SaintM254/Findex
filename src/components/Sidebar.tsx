@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   Clock3,
   FolderClosed,
+  FolderPlus,
   HardDrive,
   LayoutGrid,
   PanelLeftClose,
@@ -10,6 +11,7 @@ import {
   ShieldCheck,
   Star,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import type { Location } from '../lib/types';
 import { indexFiles } from '../lib/file-index';
@@ -21,6 +23,9 @@ interface Props {
   navigate: (location: Location) => void;
   assistant: () => void;
   settings: () => void;
+  newFolder: () => void;
+  importFiles: () => void;
+  canManageFiles: boolean;
   mobileOpen: boolean;
   closeMobile: () => void;
 }
@@ -29,6 +34,9 @@ export const Sidebar = memo(function Sidebar({
   navigate,
   assistant,
   settings,
+  newFolder,
+  importFiles,
+  canManageFiles,
   mobileOpen,
   closeMobile,
 }: Props) {
@@ -74,6 +82,7 @@ export const Sidebar = memo(function Sidebar({
         <button className="sidebar-scrim" aria-label="Close navigation" onClick={closeMobile} />
       )}
       <aside
+        id="workspace-navigation"
         ref={aside}
         inert={compact && !mobileOpen ? true : undefined}
         className={`sidebar ${mobileOpen ? 'is-open' : ''}`}
@@ -88,6 +97,28 @@ export const Sidebar = memo(function Sidebar({
           </button>
           <IconButton className="sidebar-close" label="Close navigation" onClick={closeMobile}>
             <PanelLeftClose size={20} />
+          </IconButton>
+        </div>
+        <div className="sidebar-file-tools" role="toolbar" aria-label="File tools">
+          <IconButton
+            label="New folder"
+            disabled={!canManageFiles}
+            onClick={() => {
+              closeMobile();
+              newFolder();
+            }}
+          >
+            <FolderPlus size={20} />
+          </IconButton>
+          <IconButton
+            label="Add files"
+            disabled={!canManageFiles}
+            onClick={() => {
+              closeMobile();
+              importFiles();
+            }}
+          >
+            <Upload size={20} />
           </IconButton>
         </div>
         <div className="sidebar-scroll">
@@ -182,7 +213,13 @@ export const Sidebar = memo(function Sidebar({
               <strong>Your workspace</strong>
               <span>Make yourself at home</span>
             </div>
-            <IconButton label="Open settings" onClick={settings}>
+            <IconButton
+              label="Open settings"
+              onClick={() => {
+                closeMobile();
+                settings();
+              }}
+            >
               <Settings2 size={18} />
             </IconButton>
           </div>

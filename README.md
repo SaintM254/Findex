@@ -6,7 +6,7 @@
 
 The 1.1 source includes direct, paged native folder browsing, a linear-time cached UI index, low-priority metadata scanning, responsive navigation, and the supplied blue icon/theme. See [`docs/PERFORMANCE_1_1.md`](docs/PERFORMANCE_1_1.md).
 
-**Compatible release signing is blocked:** the private v1.0 signing material is unavailable in the restored workspace. `signing/release-policy.json` pins the original certificate, and no replacement signing identity is generated. The annotated screenshot for the red-circled removals is also still needed. See [`docs/releases/v1.1.md`](docs/releases/v1.1.md) for exact status.
+**Compatible release signing is blocked:** the private v1.0 signing material is unavailable in the restored workspace. `signing/release-policy.json` pins the original certificate, and no replacement signing identity is generated. The screenshot cleanup is complete: the top-right theme/avatar controls and the main New folder/Add files row are removed. File tools and appearance settings remain available through navigation. See [`docs/releases/v1.1.md`](docs/releases/v1.1.md) for exact status.
 
 ## Run the interactive preview
 
@@ -17,7 +17,7 @@ npm run dev
 
 Open the development server on port **5173**. It binds to `0.0.0.0` and accepts the Arena preview host. There is no separate backend or browser-facing localhost API.
 
-The browser preview is a **sandboxed workspace**, clearly marked in the sidebar and Settings. It includes real, small sample PDFs, photographs, a video, generated audio, text, CSV, and ZIP files. Import your own files with **Add files** or drag and drop. Creation, rename, favorites, nested copy/move, conflict-safe paste, Trash, restore, permanent deletion, and assistant plans all work and persist in IndexedDB. The displayed sample storage totals come from the actual file bytes, not invented device statistics.
+The browser preview is a **sandboxed workspace**, clearly marked in the sidebar and Settings. It includes real, small sample PDFs, photographs, a video, generated audio, text, CSV, and ZIP files. Import your own files using **navigation → Add files** (the upload icon) or drag and drop. Creation, rename, favorites, nested copy/move, conflict-safe paste, Trash, restore, permanent deletion, and assistant plans all work and persist in IndexedDB. The displayed sample storage totals come from the actual file bytes, not invented device statistics.
 
 **The preview cannot access your phone's entire filesystem.** Android uses a separate, native repository. It never seeds the sample workspace onto your device.
 
@@ -90,7 +90,8 @@ For flexible language, use **Settings → Intelligence** to choose OpenAI, Anthr
 - **Long-press** a file or quick-access folder to select it. Desktop checkboxes and Space are also available.
 - The inset frosted selection pill appears only while items are selected. Select all, cut, copy, conditional paste, delete, and Trash restore are icon-only and accessibility-labelled.
 - `Ctrl/Cmd K`: focus search. `Ctrl/Cmd A`: select visible files. `Ctrl/Cmd X/C/V`: cut/copy/paste. Delete: open removal confirmation. Escape: dismiss/clear.
-- Use the sun/moon control or Settings for light, dark, or system appearance.
+- Open **navigation → Settings → General** for light, dark, or system appearance.
+- Use the icon-only **File tools** in navigation for **New folder** and **Add files**; these act on the currently open folder. The main screen no longer shows the circled theme/avatar or creation/import controls.
 - “Refresh file index” records a storage baseline. No previous baseline is shown as **First scan**, never fabricated growth.
 
 ## Verification

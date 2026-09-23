@@ -20,15 +20,12 @@ import {
   Info,
   LoaderCircle,
   Menu,
-  Moon,
   Pencil,
-  Plus,
   RotateCcw,
   Scissors,
   Search,
   ShieldCheck,
   Star,
-  Sun,
   Trash2,
   Upload,
   X,
@@ -61,7 +58,6 @@ export default function App() {
     progress,
     toast,
     run,
-    refresh,
     notify,
     clearToast,
   } = useWorkspace();
@@ -368,30 +364,25 @@ export default function App() {
       setContextMenu(null);
     }
   }
-  async function importFiles(incoming: File[]) {
-    if (!incoming.length && !repository.native) return;
-    await run(
-      'Making room for your files',
-      (progress) => repository.importFiles(incoming, currentFolder, progress),
-      'New arrivals, all settled in.',
-    );
-  }
-  const startImport = () => {
+  const importFiles = useCallback(
+    async (incoming: File[]) => {
+      if (!incoming.length && !repository.native) return;
+      await run(
+        'Making room for your files',
+        (progress) => repository.importFiles(incoming, currentFolder, progress),
+        'New arrivals, all settled in.',
+      );
+    },
+    [run, currentFolder],
+  );
+  const startImport = useCallback(() => {
     if (repository.native) void importFiles([]);
     else uploadInput.current?.click();
-  };
+  }, [importFiles]);
+  const newFolder = useCallback(() => setNameDialog({}), []);
   const assistant = useCallback((prompt?: string) => setAssistantState({ prompt }), []);
   const showSettings = useCallback(() => setSettingsOpen(true), []);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
-  const toggleTheme = async () => {
-    const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-    try {
-      await repository.savePreferences({ ...preferences, theme });
-      await refresh();
-    } catch (error) {
-      notify(errorMessage(error), 'error');
-    }
-  };
 
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
@@ -570,6 +561,9 @@ export default function App() {
         navigate={navigate}
         assistant={assistant}
         settings={showSettings}
+        newFolder={newFolder}
+        importFiles={startImport}
+        canManageFiles={!loading && permission && !progress && location.page !== 'trash'}
         mobileOpen={mobileOpen}
         closeMobile={closeMobile}
       />
@@ -606,6 +600,8 @@ export default function App() {
             <IconButton
               label="Open navigation"
               className="mobile-menu-button"
+              aria-expanded={mobileOpen}
+              aria-controls="workspace-navigation"
               onClick={() => setMobileOpen(true)}
             >
               <Menu size={21} />
@@ -659,29 +655,6 @@ export default function App() {
                 </kbd>
               )}
             </div>
-            <IconButton
-              className="theme-toggle"
-              label={
-                document.documentElement.dataset.theme === 'dark'
-                  ? 'Switch to light mode'
-                  : 'Switch to dark mode'
-              }
-              onClick={toggleTheme}
-            >
-              {document.documentElement.dataset.theme === 'dark' ? (
-                <Moon size={19} strokeWidth={1.7} />
-              ) : (
-                <Sun size={19} strokeWidth={1.7} />
-              )}
-            </IconButton>
-            <button
-              className="topbar-avatar"
-              aria-label="Open preferences"
-              title="Your preferences"
-              onClick={() => setSettingsOpen(true)}
-            >
-              <span>a.</span>
-            </button>
           </div>
         </header>
         <div
@@ -725,50 +698,33 @@ export default function App() {
                 </div>
                 <p>{description}</p>
               </div>
-              <div className="page-actions">
-                {clipboard && location.page !== 'trash' && (
-                  <IconButton
-                    label={`Paste ${clipboard.ids.length} items`}
-                    className="header-paste"
-                    onClick={paste}
-                    disabled={!!progress}
-                  >
-                    <ClipboardPaste size={19} />
-                    <span className="clipboard-count">{clipboard.ids.length}</span>
-                  </IconButton>
-                )}
-                {location.page === 'trash' ? (
-                  <button
-                    className="secondary-button"
-                    disabled={!visible.length || !!progress}
-                    onClick={() => requestDelete(visible.map((file) => file.id))}
-                  >
-                    <Trash2 size={17} />
-                    {repository.native && nativePage.total > visible.length
-                      ? 'Empty this page'
-                      : 'Empty Trash'}
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      className="secondary-button new-folder-button"
-                      onClick={() => setNameDialog({})}
-                      disabled={loading || !permission}
+              {(clipboard || location.page === 'trash') && (
+                <div className="page-actions">
+                  {clipboard && location.page !== 'trash' && (
+                    <IconButton
+                      label={`Paste ${clipboard.ids.length} items`}
+                      className="header-paste"
+                      onClick={paste}
+                      disabled={!!progress}
                     >
-                      <Plus size={17} />
-                      <span>New folder</span>
-                    </button>
+                      <ClipboardPaste size={19} />
+                      <span className="clipboard-count">{clipboard.ids.length}</span>
+                    </IconButton>
+                  )}
+                  {location.page === 'trash' && (
                     <button
-                      className="primary-button upload-button"
-                      onClick={startImport}
-                      disabled={loading || !permission}
+                      className="secondary-button"
+                      disabled={!visible.length || !!progress}
+                      onClick={() => requestDelete(visible.map((file) => file.id))}
                     >
-                      <Upload size={16} />
-                      <span>Add files</span>
+                      <Trash2 size={17} />
+                      {repository.native && nativePage.total > visible.length
+                        ? 'Empty this page'
+                        : 'Empty Trash'}
                     </button>
-                  </>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
             {loading ? (
               <div className="listing-loading" role="status">

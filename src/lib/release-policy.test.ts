@@ -9,7 +9,8 @@ describe('Android update identity', () => {
     expect(policy.expectedCertificateSha256).toBe(
       'cdc51b906b006af79a6983318f8bc448c74453732842ca68a7fdbd160f76a3af',
     );
-    expect(policy.allowNewSigningKey).toBe(false);
+    expect(policy.signingIdentity).toBe('findex-release-v1.1');
+    expect(policy.minimumUpdateVersionCode).toBe(2);
     expect(policy.versionName).toBe('1.1');
     expect(policy.versionCode).toBe(2);
     const gradle = readFileSync(resolve('android/app/build.gradle'), 'utf8');

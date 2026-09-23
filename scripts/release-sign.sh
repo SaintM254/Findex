@@ -54,6 +54,11 @@ else
   exit 1
 fi
 
+# apksigner's PasswordRetriever consumes one line per --*-pass file reference,
+# so the same file referenced by --ks-pass and --key-pass must hold two lines.
+first_line=$(head -n1 "$password_file")
+printf '%s\n%s\n' "$first_line" "$first_line" > "$password_file"
+
 keytool -exportcert -keystore "$keystore" -alias findex -storepass:file "$password_file" -file "$public_cert" >/dev/null
 actual=$(openssl x509 -inform DER -in "$public_cert" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr '[:upper:]' '[:lower:]')
 if [[ "$source_kind" == "repository-secret" && "$actual" != "$expected" ]]; then

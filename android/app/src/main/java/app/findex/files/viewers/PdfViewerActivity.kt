@@ -136,7 +136,9 @@ class PdfViewerActivity : ViewerActivity() {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PageHolder = PageHolder(FrameLayout(this@PdfViewerActivity))
         override fun onBindViewHolder(holder: PageHolder, position: Int) {
             holder.job?.cancel(); holder.image.setImageDrawable(null); holder.status.visibility = View.VISIBLE; holder.status.text = "Preparing page…"
-            holder.box.layoutParams = RecyclerView.LayoutParams(-1, min(20_000f, width * (ratios[position] ?: initialRatio)).roundToInt().coerceAtLeast(1))
+            // Mutate the existing LayoutParams: a fresh RecyclerView.LayoutParams
+            // carries no ViewHolder and crashes RecyclerView during layout.
+            holder.box.layoutParams.height = min(20_000f, width * (ratios[position] ?: initialRatio)).roundToInt().coerceAtLeast(1)
             holder.image.contentDescription = "PDF page ${position + 1}"
             val displayWidth = width; val key = "$position:$displayWidth"; holder.key = key
             if (!rendering.isActive) return
@@ -159,7 +161,7 @@ class PdfViewerActivity : ViewerActivity() {
                     if (isActive) withContext(Dispatchers.Main) {
                         if (holder.key == key) {
                             ratios[position] = ratio
-                            holder.box.layoutParams = RecyclerView.LayoutParams(-1, min(20_000f, displayWidth * ratio).roundToInt().coerceAtLeast(1))
+                            holder.box.layoutParams.height = min(20_000f, displayWidth * ratio).roundToInt().coerceAtLeast(1)
                             holder.image.setImageBitmap(image); holder.status.visibility = View.GONE
                         }
                     }

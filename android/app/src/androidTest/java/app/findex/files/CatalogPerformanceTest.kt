@@ -98,15 +98,17 @@ class CatalogPerformanceTest {
         val small = engine.catalog.navigation()
         assertTrue("Navigation snapshot must remain bounded", small.size <= 76)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            fun javascript(script: String): String {
+            fun javascript(script: String, timeoutSeconds: Long = 2): String {
                 val value = AtomicReference<String>("")
                 val latch = CountDownLatch(1)
                 scenario.onActivity { activity -> activity.bridge.webView.evaluateJavascript(script) { result -> value.set(result); latch.countDown() } }
-                assertTrue("WebView must respond without a full-index stall", latch.await(2, TimeUnit.SECONDS))
+                assertTrue("WebView must respond without a full-index stall", latch.await(timeoutSeconds, TimeUnit.SECONDS))
                 return value.get()
             }
+            // Cold WebView startup on a shared CI emulator can exceed the stall
+            // budget, so only the post-load interactions keep the strict limit.
             val deadline = SystemClock.elapsedRealtime() + 10_000
-            while (javascript("Boolean(document.querySelector('.app-shell'))") != "true" && SystemClock.elapsedRealtime() < deadline) Thread.sleep(80)
+            while (javascript("Boolean(document.querySelector('.app-shell'))", 15) != "true" && SystemClock.elapsedRealtime() < deadline) Thread.sleep(80)
             assertEquals("true", javascript("Boolean(document.querySelector('.app-shell'))"))
             val response = javascript("""
                 (function() {

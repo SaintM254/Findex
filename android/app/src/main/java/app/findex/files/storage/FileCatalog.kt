@@ -35,7 +35,7 @@ class FileCatalog(private val engine: StorageEngine) {
         val children = parent.listFiles() ?: error("This folder could not be read. Check its permission or reconnect the storage device.")
         val entries = children.mapNotNull { child ->
             if (child.name in setOf(".findex-trash", ".findex-staging") && engine.policy.isRoot(parent)) return@mapNotNull null
-            if (parent.name == "Android" && child.name in setOf("data", "obb")) return@mapNotNull null
+            if (child.name in setOf("data", "obb") && engine.roots.any { parent == File(it, "Android") }) return@mapNotNull null
             runCatching {
                 val attributes = Files.readAttributes(child.toPath(), BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
                 if (attributes.isSymbolicLink || (!attributes.isDirectory && !attributes.isRegularFile)) null

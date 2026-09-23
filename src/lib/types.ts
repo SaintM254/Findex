@@ -26,6 +26,7 @@ export interface FileItem {
   duration?: number;
   isVolume?: boolean;
   childCount?: number;
+  cleanupReason?: 'duplicate' | 'stale';
 }
 export interface StorageInfo {
   total: number;

@@ -26,8 +26,15 @@ class AgentClient(private val context: Context) {
         val key = store.vault.read(provider) ?: error("Add an API key in Settings first.")
         val engine = StorageEngine.get(context)
         check(engine.hasPermission()) { "Storage permission is required." }
-        val metadata = engine.catalog.planningContext().map { item ->
-            JSONObject().put("id", engine.uiId(item)).put("name", item.name).put("parentId", engine.toUi(item).optString("parentId", "root")).put("kind", item.kind)
+        val contextFiles = engine.catalog.planningContext()
+        // Path locators are local capabilities, not provider metadata. Exchange
+        // per-request opaque labels and translate only allowlisted folder fields.
+        val labels = contextFiles.mapIndexed { index, item -> engine.uiId(item) to "entry-$index" }.toMap()
+        val localIds = labels.entries.associate { it.value to it.key }
+        val metadata = contextFiles.map { item ->
+            val parent = engine.toUi(item).optString("parentId", "root")
+            JSONObject().put("id", labels.getValue(engine.uiId(item))).put("name", item.name)
+                .put("parentId", if (parent == "root") "root" else labels[parent] ?: "outside-snapshot").put("kind", item.kind)
                 .put("category", item.category).put("size", item.size).put("modifiedAt", item.modifiedAt)
         }
         val payload = JSONObject().put("now", Instant.now().toString()).put("timezone", timezone.take(80)).put("query", query).put("files", JSONArray(metadata)).toString()
@@ -64,7 +71,18 @@ class AgentClient(private val context: Context) {
             }
             val cleaned = text.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
             // Parsing is not execution: the UI validates the complete allowlisted schema and asks for confirmation.
-            JSONObject(cleaned)
+            JSONObject(cleaned).also { plan ->
+                if (plan.has("sourceFolder")) {
+                    val label = plan.getString("sourceFolder")
+                    plan.put("sourceFolder", localIds[label] ?: error("Your provider named a folder outside this request's index snapshot."))
+                }
+                plan.optJSONObject("filter")?.let { filter ->
+                    if (filter.has("parentId")) {
+                        val label = filter.getString("parentId")
+                        filter.put("parentId", if (label == "root") "root" else localIds[label] ?: error("Your provider named an unknown folder."))
+                    }
+                }
+            }
         }
     }
     companion object { private val JSON = "application/json; charset=utf-8".toMediaType() }

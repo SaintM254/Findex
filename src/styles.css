@@ -4878,3 +4878,10 @@ body:has(.modal-backdrop):has(.toast) .operation-progress {
     min-height: 40px;
   }
 }
+
+@media (pointer: coarse) {
+  .sidebar-scrim {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

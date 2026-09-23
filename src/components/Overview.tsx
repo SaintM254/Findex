@@ -58,7 +58,7 @@ export const Overview = memo(function Overview({
           <img
             className="hero-image"
             src="/images/findex-hero.png"
-            alt="A frosted sage folder holding a few thoughtfully arranged pages"
+            alt="A frosted blue folder holding a few thoughtfully arranged pages"
           />
           <div className="hero-shade" />
           <div className="welcome-copy">

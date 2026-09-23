@@ -166,7 +166,7 @@ class StorageEngine private constructor(private val context: Context) {
             for (chunk in listed.asList().chunked(96)) {
                 val entries = chunk.mapNotNull { file ->
                     if (file.name in setOf(".findex-trash", ".findex-staging") && policy.isRoot(parent)) return@mapNotNull null
-                    if (parent.name == "Android" && file.name in setOf("data", "obb")) return@mapNotNull null
+                    if (file.name in setOf("data", "obb") && roots.any { parent == File(it, "Android") }) return@mapNotNull null
                     runCatching {
                         val attributes = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
                         if (attributes.isSymbolicLink || (!attributes.isDirectory && !attributes.isRegularFile)) null else file to attributes
@@ -208,7 +208,9 @@ class StorageEngine private constructor(private val context: Context) {
         val attributes = knownAttributes ?: Files.readAttributes(file.toPath(), BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
         check(!attributes.isSymbolicLink) { "Symbolic links are not followed." }
         val size = if (attributes.isRegularFile) attributes.size() else 0L
-        val modified = attributes.lastModifiedTime().toMillis()
+        // Android's NIO provider and java.io can report different timestamp
+        // precision on emulated/FAT storage. Match the API used by mutation guards.
+        val modified = file.lastModified()
         val unchanged = previous != null && previous.size == size && previous.modifiedAt == modified
         return FileRecord().apply {
             id = previous?.id ?: UUID.randomUUID().toString()
@@ -656,6 +658,11 @@ class StorageEngine private constructor(private val context: Context) {
             val docs = files.filter { it.kind == "file" }
             val duplicateGroups = docs.filter { it.fingerprint != null }.groupBy { it.fingerprint }.values.filter { it.size > 1 }
                 .map { group -> group.sortedWith(compareByDescending<FileRecord> { it.favorite }.thenBy { it.createdAt }) }
+            var duplicateBudget = 500
+            val reportedDuplicates = duplicateGroups.mapNotNull { group ->
+                if (duplicateBudget < 2) null else group.take(duplicateBudget).also { duplicateBudget -= it.size }
+            }
+            val redundantIds = duplicateGroups.flatMap { it.drop(1) }.mapTo(HashSet()) { it.id }
             val stale = docs.filter { it.extension in setOf("apk", "tmp", "temp", "bak") && it.modifiedAt < System.currentTimeMillis() - 30L * 86400_000 }
             val cleanup = (duplicateGroups.flatMap { it.drop(1) } + stale).distinctBy { it.id }
             val parentsWithChildren = files.mapTo(mutableSetOf()) { it.parentId }
@@ -666,8 +673,8 @@ class StorageEngine private constructor(private val context: Context) {
             }
             JSONObject().put("totalBytes", docs.sumOf { it.size }).put("totalFiles", docs.size)
                 .put("largeFiles", JSONArray(docs.sortedByDescending { it.size }.take(8).map { toJson(it) }))
-                .put("duplicates", JSONArray(duplicateGroups.take(100).map { group -> JSONArray(group.take(100).map { toJson(it, false) }) }))
-                .put("candidateCount", cleanup.size + empty.size).put("cleanup", JSONArray(cleanup.take(500).map { toJson(it, false) })).put("emptyFolders", JSONArray(empty.take((500 - cleanup.size).coerceAtLeast(0)).map { toJson(it, false) })).put("growth", JSONArray(growth))
+                .put("duplicates", JSONArray(reportedDuplicates.map { group -> JSONArray(group.map { toJson(it, false) }) }))
+                .put("candidateCount", cleanup.size + empty.size).put("cleanup", JSONArray(cleanup.take(500).map { toJson(it, false).put("cleanupReason", if (it.id in redundantIds) "duplicate" else "stale") })).put("emptyFolders", JSONArray(empty.take((500 - cleanup.size).coerceAtLeast(0)).map { toJson(it, false) })).put("growth", JSONArray(growth))
         }
     }
     fun storage(): JSONObject {

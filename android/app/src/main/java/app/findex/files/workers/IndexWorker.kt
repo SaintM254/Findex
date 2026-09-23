@@ -30,7 +30,7 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             val manager = WorkManager.getInstance(context)
             val periodic = PeriodicWorkRequestBuilder<IndexWorker>(60, TimeUnit.MINUTES)
                 .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build()).addTag(TAG).build()
-            manager.enqueueUniquePeriodicWork("findex-periodic-index", ExistingPeriodicWorkPolicy.KEEP, periodic)
+            manager.enqueueUniquePeriodicWork("findex-periodic-index", ExistingPeriodicWorkPolicy.UPDATE, periodic)
             if (immediate) manager.enqueueUniqueWork("findex-index-now", ExistingWorkPolicy.KEEP, OneTimeWorkRequestBuilder<IndexWorker>().setInitialDelay(3, TimeUnit.SECONDS).setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build()).addTag(TAG).build())
         }
     }

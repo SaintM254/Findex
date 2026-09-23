@@ -139,6 +139,7 @@ class PdfViewerActivity : ViewerActivity() {
             // Mutate the existing LayoutParams: a fresh RecyclerView.LayoutParams
             // carries no ViewHolder and crashes RecyclerView during layout.
             holder.box.layoutParams.height = min(20_000f, width * (ratios[position] ?: initialRatio)).roundToInt().coerceAtLeast(1)
+            holder.box.requestLayout()
             holder.image.contentDescription = "PDF page ${position + 1}"
             val displayWidth = width; val key = "$position:$displayWidth"; holder.key = key
             if (!rendering.isActive) return
@@ -162,6 +163,7 @@ class PdfViewerActivity : ViewerActivity() {
                         if (holder.key == key) {
                             ratios[position] = ratio
                             holder.box.layoutParams.height = min(20_000f, displayWidth * ratio).roundToInt().coerceAtLeast(1)
+                            holder.box.requestLayout()
                             holder.image.setImageBitmap(image); holder.status.visibility = View.GONE
                         }
                     }
